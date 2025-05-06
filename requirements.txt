@@ -1,0 +1,5 @@
+faiss-cpu
+nltk
+sentence-transformers
+joblib
+llama-cpp-python
