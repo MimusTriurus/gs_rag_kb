@@ -5,26 +5,28 @@ import joblib
 import numpy as np
 from pathlib import Path
 from llama_cpp import Llama
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 nltk.download("punkt_tab")
 
-# === НАСТРОЙКИ ===
+# === SETTINGS ===
 DOCUMENTS_PATH = "documents/"
 CACHE_DIR = "cache/"
 EMBED_MODEL_NAME = "bge-large-en"
-GGUF_MODEL_PATH = "model/Meta-Llama-3-8B-Instruct.Q8_0.gguf"
+CROSS_ENCODER_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+GGUF_MODEL_PATH = "model/mistral-7b-instruct-v0.2.Q8_0.gguf"
 CHUNK_SIZE = 300
 TOP_K_CATEGORIES = 3
-TOP_K_RETRIEVAL = 5
-TOP_K_RERANK = 3
+TOP_K_RETRIEVAL = 50
+TOP_K_RERANK = 5
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-# === Функции для разбора и чанкинга документов ===
+# === FUNCTIONS ===
 
 def chunk_text(text, size):
+    print("\n[chunk_text] Splitting text into chunks...")
     sentences = nltk.sent_tokenize(text)
     chunks, chunk = [], ""
     for sent in sentences:
@@ -35,40 +37,33 @@ def chunk_text(text, size):
             chunk = sent
     if chunk:
         chunks.append(chunk.strip())
+    print(f"[chunk_text] Total chunks created: {len(chunks)}")
     return chunks
 
 
 def parse_documents():
-    """
-    Читает .txt файлы, где
-     - 1-я строка = заголовок
-     - 2-я строка = путь/тэги (GameDesign/Combat/Weapons)
-     - дальше = тело
-    """
+    print("\n[parse_documents] Parsing documents...")
     docs_by_category = {}
     for file in Path(DOCUMENTS_PATH).glob("*.txt"):
+        print(f"[parse_documents] Reading file: {file.name}")
         with open(file, "r", encoding="utf-8") as f:
             lines = f.readlines()
             if len(lines) < 3:
                 continue
             path = lines[1].strip()
-            tags = path.split("/")  # тэги из пути
+            tags = path.split("/")
             body = "".join(lines[2:])
             chunks = chunk_text(body, CHUNK_SIZE)
             for tag in tags:
                 docs_by_category.setdefault(tag, []).extend(
                     [(chunk, file.name) for chunk in chunks]
                 )
+    print(f"[parse_documents] Categories found: {len(docs_by_category)}")
     return docs_by_category
 
 
-# === Индексация и кэширование по категориям ===
-
 def build_or_load_index(tag, embed_model, docs):
-    """
-    Для каждого тега создаём свой FAISS-индекс и кэшируем:
-      embeddings.npy, chunks.pkl, sources.pkl, faiss.index
-    """
+    print(f"\n[build_or_load_index] Processing category: {tag}")
     tag_dir = os.path.join(CACHE_DIR, tag)
     os.makedirs(tag_dir, exist_ok=True)
 
@@ -78,13 +73,14 @@ def build_or_load_index(tag, embed_model, docs):
     index_path = os.path.join(tag_dir, "faiss.index")
 
     if all(os.path.exists(p) for p in (emb_path, chunks_path, sources_path, index_path)):
+        print("[build_or_load_index] Loading from cache...")
         embeddings = np.load(emb_path)
         chunks = joblib.load(chunks_path)
         sources = joblib.load(sources_path)
         index = faiss.read_index(index_path)
     else:
+        print("[build_or_load_index] Generating new embeddings...")
         chunks, sources = zip(*docs)
-        # ✂️ BGE: используем BGE для эмбеддингов
         embeddings = embed_model.encode(chunks, convert_to_numpy=True, normalize_embeddings=True)
         index = faiss.IndexFlatIP(embeddings.shape[1])
         index.add(embeddings)
@@ -94,71 +90,56 @@ def build_or_load_index(tag, embed_model, docs):
         joblib.dump(sources, sources_path)
         faiss.write_index(index, index_path)
 
-    return index, list(chunks), list(sources), embeddings
+    return index, list(chunks), list(sources)
 
-
-# === Определение релевантных категорий через LLM ===
 
 def select_categories(llm, query, tag_list):
+    print("\n[select_categories] Selecting relevant categories for the query...")
     prompt = (
-        f"Ты — интеллектуальная система классификации.\n"
-        f"На вход ты получаешь запрос и список категорий.\n"
-        f"Выбери до {TOP_K_CATEGORIES} категорий, наиболее подходящих к запросу.\n\n"
-        f"Запрос: «{query}»\n"
-        f"Категории: {', '.join(tag_list)}\n"
-        f"Ответ (через запятую):"
+        f"You are a classification system. Select up to {TOP_K_CATEGORIES} relevant categories for the given query.\n"
+        f"Query: \"{query}\"\n"
+        f"Categories: {', '.join(tag_list)}\n"
+        f"Answer (comma-separated):"
     )
     resp = llm(prompt, max_tokens=50, stop=["\n"])
     text = resp["choices"][0]["text"]
     selected = [t.strip() for t in text.split(",") if t.strip() in tag_list]
+    print(f"[select_categories] Selected categories: {selected}")
     return selected[:TOP_K_CATEGORIES]
 
 
-# === Retrieval & Reranking ===
-
-def retrieve_chunks(index, chunks, sources, query_emb):
+def retrieve_and_rerank(bi_model, cross_model, index, chunks, sources, query, query_emb):
+    print("\n[retrieve_and_rerank] Retrieving relevant chunks...")
     D, I = index.search(query_emb, TOP_K_RETRIEVAL)
-    return [(chunks[i], sources[i], float(D[0][j])) for j, i in enumerate(I[0])]
+    candidates = [(chunks[i], sources[i]) for i in I[0]]
 
+    print(f"[retrieve_and_rerank] Candidates before rerank: {len(candidates)}")
+    docs = [text for text, _ in candidates]
+    pairs = [(query, doc) for doc in docs]
+    scores = cross_model.predict(pairs)
+    ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
+    top = ranked[:TOP_K_RERANK]
+    print(f"[retrieve_and_rerank] Selected after rerank: {len(top)}")
+    return [(text, src) for _, (text, src) in top]
 
-def rerank(llm, query, passages):
-    scored = []
-    for text, source, _ in passages:
-        prompt = (
-            f"Оцени релевантность этого фрагмента к запросу от 1 до 10.\n\n"
-            f"Запрос: {query}\n"
-            f"Текст: {text}\n"
-            f"Оценка:"
-        )
-        out = llm(prompt, max_tokens=5, stop=["\n"])
-        try:
-            score = float(out["choices"][0]["text"].strip().split()[0])
-        except:
-            score = 0.0
-        scored.append((score, text, source))
-    scored.sort(reverse=True, key=lambda x: x[0])
-    return scored[:TOP_K_RERANK]
-
-
-# === Генерация ответа ===
 
 def answer_question(llm, context, query):
+    print("\n[answer_question] Generating answer with LLM...")
     prompt = (
-        f"Ты — полезный ассистент.\n"
-        f"Используй только предоставленный контекст.\n\n"
-        f"Контекст:\n{context}\n\n"
-        f"Вопрос: {query}\nОтвет:"
+        f"You are an assistant. Use only the context below to answer.\n\n"
+        f"Context:\n{context}\n\n"
+        f"Question: {query}\nAnswer:"
     )
     resp = llm(prompt, max_tokens=256, stop=["\n\n"])
     return resp["choices"][0]["text"].strip()
 
 
-# === Main ===
+# === MAIN ===
 
 def main():
-    print("Загрузка моделей…")
-    # ✂️ BGE: инициализируем SentenceTransformer на BGE
+    print("[main] Loading models...")
     embed_model = SentenceTransformer(EMBED_MODEL_NAME)
+    cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
     llm = Llama(
         model_path=GGUF_MODEL_PATH,
         embedding=False,
@@ -167,44 +148,36 @@ def main():
         verbose=False
     )
 
-    print("Парсинг документов и подготовка индексов…")
     docs_by_category = parse_documents()
     tag_list = list(docs_by_category.keys())
     tag_indexes = {}
 
-    # Построение/загрузка индексов по категориям
-    for tag in tag_list:
-        idx, chunks, sources, _ = build_or_load_index(tag, embed_model, docs_by_category[tag])
+    print("\n[main] Building indices...")
+    for tag, docs in docs_by_category.items():
+        idx, chunks, sources = build_or_load_index(tag, embed_model, docs)
         tag_indexes[tag] = (idx, chunks, sources)
 
-    print("Система готова! Введите ваш вопрос.")
-
+    print("\n[main] Ready! Enter your query:")
     while True:
-        query = input("\nВопрос (или 'exit'): ")
+        query = input("\nQuery (or 'exit'): ")
         if query.lower() == "exit":
             break
 
-        # 1) Эмбеддинг запроса через BGE
         query_emb = embed_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-
-        # 2) Определение релевантных категорий через LLM
         relevant = select_categories(llm, query, tag_list)
-        print(f"→ Выбраны категории: {', '.join(relevant)}")
 
-        # 3) Поиск и сбор кандидатов
-        candidates = []
+        all_results = []
         for tag in relevant:
             idx, chunks, sources = tag_indexes[tag]
-            candidates += retrieve_chunks(idx, chunks, sources, query_emb)
+            results = retrieve_and_rerank(
+                embed_model, cross_encoder, idx, chunks, sources, query, query_emb
+            )
+            all_results.extend(results)
 
-        # 4) Reranking через LLM
-        top_passages = rerank(llm, query, candidates)
-
-        # 5) Формирование контекста и генерация ответа
-        context = "\n---\n".join(f"{src}:\n{text}" for _, text, src in top_passages)
+        context = "\n---\n".join([f"{src}:\n{text}" for text, src in all_results])
         answer = answer_question(llm, context, query)
 
-        print(f"\n📚 Ответ:\n{answer}")
+        print(f"\nAnswer:\n{answer}\n")
 
 
 if __name__ == "__main__":
