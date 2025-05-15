@@ -1,90 +1,72 @@
 import os
+import re
 import faiss
-import nltk
 import joblib
 import numpy as np
 from pathlib import Path
 from llama_cpp import Llama
 from sentence_transformers import SentenceTransformer, CrossEncoder
-
-nltk.download("punkt_tab")
+from chunking import split_md_file
 
 # === SETTINGS ===
 DOCUMENTS_PATH = "documents/"
 CACHE_DIR = "cache/"
-EMBED_MODEL_NAME = "bge-large-en"
-CROSS_ENCODER_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-GGUF_MODEL_PATH = "model/mistral-7b-instruct-v0.2.Q8_0.gguf"
-CHUNK_SIZE = 300
-TOP_K_CATEGORIES = 3
+EMBED_MODEL_NAME = "models/bge-large-en"
+CROSS_ENCODER_NAME = "models/ms-marco-MiniLM-L6-v2"
+GGUF_MODEL_PATH = "models/mistral-7b-instruct-v0.2.Q8_0.gguf"
+MAX_CHUNK_SIZE = 1500
+OVERLAP_BLOCKS = 2
 TOP_K_RETRIEVAL = 50
-TOP_K_RERANK = 5
+TOP_K_RERANK = 2
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
 # === FUNCTIONS ===
 
-def chunk_text(text, size):
-    print("\n[chunk_text] Splitting text into chunks...")
-    sentences = nltk.sent_tokenize(text)
-    chunks, chunk = [], ""
-    for sent in sentences:
-        if len(chunk) + len(sent) <= size:
-            chunk += " " + sent
-        else:
-            chunks.append(chunk.strip())
-            chunk = sent
-    if chunk:
-        chunks.append(chunk.strip())
-    print(f"[chunk_text] Total chunks created: {len(chunks)}")
-    return chunks
+def chunk_text(file_path, max_chunk_size=MAX_CHUNK_SIZE, overlap=OVERLAP_BLOCKS):
+    """
+    Read a markdown file and split into cleaned chunks using specialized functions.
+    """
+    md_chunks = split_md_file(file_path, max_chunk_size, overlap, clean_markdown=True)
+    print(f"[chunk_text] Split file {os.path.basename(file_path)} into {len(md_chunks)} chunks.")
+    return md_chunks
 
 
 def parse_documents():
-    print("\n[parse_documents] Parsing documents...")
-    docs_by_category = {}
-    for file in Path(DOCUMENTS_PATH).glob("*.txt"):
-        print(f"[parse_documents] Reading file: {file.name}")
-        with open(file, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-            if len(lines) < 3:
-                continue
-            path = lines[1].strip()
-            tags = path.split("/")
-            body = "".join(lines[2:])
-            chunks = chunk_text(body, CHUNK_SIZE)
-            for tag in tags:
-                docs_by_category.setdefault(tag, []).extend(
-                    [(chunk, file.name) for chunk in chunks]
-                )
-    print(f"[parse_documents] Categories found: {len(docs_by_category)}")
-    return docs_by_category
+    print("\n[parse_documents] Parsing documents and creating chunks...")
+    docs = []  # list of (chunk, source)
+    for file in Path(DOCUMENTS_PATH).glob("*.md"):
+        print(f"[parse_documents] Processing file: {file.name}")
+        chunks = chunk_text(file)
+        for chunk in chunks:
+            docs.append((chunk, file.name))
+    print(f"[parse_documents] Total chunks across all documents: {len(docs)}")
+    return docs
 
 
-def build_or_load_index(tag, embed_model, docs):
-    print(f"\n[build_or_load_index] Processing category: {tag}")
-    tag_dir = os.path.join(CACHE_DIR, tag)
-    os.makedirs(tag_dir, exist_ok=True)
-
-    emb_path = os.path.join(tag_dir, "embeddings.npy")
-    chunks_path = os.path.join(tag_dir, "chunks.pkl")
-    sources_path = os.path.join(tag_dir, "sources.pkl")
-    index_path = os.path.join(tag_dir, "faiss.index")
+def build_or_load_index(embed_model, docs):
+    print("\n[build_or_load_index] Building or loading global index...")
+    emb_path = os.path.join(CACHE_DIR, "embeddings.npy")
+    chunks_path = os.path.join(CACHE_DIR, "chunks.pkl")
+    sources_path = os.path.join(CACHE_DIR, "sources.pkl")
+    index_path = os.path.join(CACHE_DIR, "faiss_global.index")
 
     if all(os.path.exists(p) for p in (emb_path, chunks_path, sources_path, index_path)):
-        print("[build_or_load_index] Loading from cache...")
+        print("[build_or_load_index] Loading index from cache...")
         embeddings = np.load(emb_path)
         chunks = joblib.load(chunks_path)
         sources = joblib.load(sources_path)
         index = faiss.read_index(index_path)
     else:
-        print("[build_or_load_index] Generating new embeddings...")
+        print("[build_or_load_index] Generating embeddings and building index...")
         chunks, sources = zip(*docs)
         embeddings = embed_model.encode(chunks, convert_to_numpy=True, normalize_embeddings=True)
         index = faiss.IndexFlatIP(embeddings.shape[1])
+        # Save index to cache
+        print(f"[build_or_load_index] Writing index to {index_path}...")
+        faiss.write_index(index, index_path)
         index.add(embeddings)
-
         np.save(emb_path, embeddings)
         joblib.dump(chunks, chunks_path)
         joblib.dump(sources, sources_path)
@@ -93,33 +75,19 @@ def build_or_load_index(tag, embed_model, docs):
     return index, list(chunks), list(sources)
 
 
-def select_categories(llm, query, tag_list):
-    print("\n[select_categories] Selecting relevant categories for the query...")
-    prompt = (
-        f"You are a classification system. Select up to {TOP_K_CATEGORIES} relevant categories for the given query.\n"
-        f"Query: \"{query}\"\n"
-        f"Categories: {', '.join(tag_list)}\n"
-        f"Answer (comma-separated):"
-    )
-    resp = llm(prompt, max_tokens=50, stop=["\n"])
-    text = resp["choices"][0]["text"]
-    selected = [t.strip() for t in text.split(",") if t.strip() in tag_list]
-    print(f"[select_categories] Selected categories: {selected}")
-    return selected[:TOP_K_CATEGORIES]
-
-
-def retrieve_and_rerank(bi_model, cross_model, index, chunks, sources, query, query_emb):
+def retrieve_and_rerank(bi_model, cross_model, index, chunks, sources, query):
     print("\n[retrieve_and_rerank] Retrieving relevant chunks...")
+    query_emb = bi_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
     D, I = index.search(query_emb, TOP_K_RETRIEVAL)
     candidates = [(chunks[i], sources[i]) for i in I[0]]
 
-    print(f"[retrieve_and_rerank] Candidates before rerank: {len(candidates)}")
+    print(f"[retrieve_and_rerank] {len(candidates)} candidates before rerank.")
     docs = [text for text, _ in candidates]
     pairs = [(query, doc) for doc in docs]
     scores = cross_model.predict(pairs)
     ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
     top = ranked[:TOP_K_RERANK]
-    print(f"[retrieve_and_rerank] Selected after rerank: {len(top)}")
+    print(f"[retrieve_and_rerank] Selected {len(top)} after rerank.")
     return [(text, src) for _, (text, src) in top]
 
 
@@ -135,7 +103,6 @@ def answer_question(llm, context, query):
 
 
 # === MAIN ===
-
 def main():
     print("[main] Loading models...")
     embed_model = SentenceTransformer(EMBED_MODEL_NAME)
@@ -148,14 +115,8 @@ def main():
         verbose=False
     )
 
-    docs_by_category = parse_documents()
-    tag_list = list(docs_by_category.keys())
-    tag_indexes = {}
-
-    print("\n[main] Building indices...")
-    for tag, docs in docs_by_category.items():
-        idx, chunks, sources = build_or_load_index(tag, embed_model, docs)
-        tag_indexes[tag] = (idx, chunks, sources)
+    docs = parse_documents()
+    index, chunks, sources = build_or_load_index(embed_model, docs)
 
     print("\n[main] Ready! Enter your query:")
     while True:
@@ -163,18 +124,16 @@ def main():
         if query.lower() == "exit":
             break
 
-        query_emb = embed_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-        relevant = select_categories(llm, query, tag_list)
+        results = retrieve_and_rerank(
+            embed_model,
+            cross_encoder,
+            index,
+            chunks,
+            sources,
+            query
+        )
 
-        all_results = []
-        for tag in relevant:
-            idx, chunks, sources = tag_indexes[tag]
-            results = retrieve_and_rerank(
-                embed_model, cross_encoder, idx, chunks, sources, query, query_emb
-            )
-            all_results.extend(results)
-
-        context = "\n---\n".join([f"{src}:\n{text}" for text, src in all_results])
+        context = "\n---\n".join([f"{src}:\n{text}" for text, src in results])
         answer = answer_question(llm, context, query)
 
         print(f"\nAnswer:\n{answer}\n")
