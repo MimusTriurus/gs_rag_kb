@@ -8,8 +8,6 @@ cv/
 model/
 cache/
 intfloat/
-documents/
-test_questions/
 layout_app.py
 api/flask_session
 

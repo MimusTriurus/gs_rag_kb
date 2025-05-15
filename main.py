@@ -18,11 +18,24 @@ MAX_CHUNK_SIZE = 1500
 OVERLAP_BLOCKS = 2
 TOP_K_RETRIEVAL = 50
 TOP_K_RERANK = 2
+TOP_K_FILE_SELECT = 1
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-# === FUNCTIONS ===
+def select_best_files(query, file_titles, file_paths, title_encoder, top_k=TOP_K_FILE_SELECT):
+    """
+    Select top_k files whose title+path embeddings best match the query.
+    """
+    title_embs = title_encoder.encode(file_titles, convert_to_numpy=True, normalize_embeddings=True)
+    query_emb = title_encoder.encode([query], convert_to_numpy=True, normalize_embeddings=True)
+    # cosine via inner product
+    scores = np.dot(title_embs, query_emb.T).squeeze()
+    best_idxs = np.argsort(-scores)[:top_k]
+    selected = [file_paths[i] for i in best_idxs]
+    print(f"[select_best_files] Selected files: {selected}")
+    return selected
+
 
 def chunk_text(file_path, max_chunk_size=MAX_CHUNK_SIZE, overlap=OVERLAP_BLOCKS):
     """
@@ -45,34 +58,39 @@ def parse_documents():
     return docs
 
 
-def build_or_load_index(embed_model, docs):
-    print("\n[build_or_load_index] Building or loading global index...")
-    emb_path = os.path.join(CACHE_DIR, "embeddings.npy")
-    chunks_path = os.path.join(CACHE_DIR, "chunks.pkl")
-    sources_path = os.path.join(CACHE_DIR, "sources.pkl")
-    index_path = os.path.join(CACHE_DIR, "faiss_global.index")
+def build_or_load_index_for_file(file_name, embed_model, chunks):
+    """
+    Build or load a FAISS index for a single document (file_name).
+    """
+    tag = Path(file_name).stem
+    tag_dir = os.path.join(CACHE_DIR, tag)
+    os.makedirs(tag_dir, exist_ok=True)
+
+    emb_path = os.path.join(tag_dir, "embeddings.npy")
+    chunks_path = os.path.join(tag_dir, "chunks.pkl")
+    sources_path = os.path.join(tag_dir, "sources.pkl")
+    index_path = os.path.join(tag_dir, "faiss.index")
 
     if all(os.path.exists(p) for p in (emb_path, chunks_path, sources_path, index_path)):
-        print("[build_or_load_index] Loading index from cache...")
+        print(f"[build_or_load_index] Loading cache for '{tag}'...")
         embeddings = np.load(emb_path)
-        chunks = joblib.load(chunks_path)
+        saved_chunks = joblib.load(chunks_path)
         sources = joblib.load(sources_path)
         index = faiss.read_index(index_path)
     else:
-        print("[build_or_load_index] Generating embeddings and building index...")
-        chunks, sources = zip(*docs)
+        print(f"[build_or_load_index] Building new index for '{tag}'...")
         embeddings = embed_model.encode(chunks, convert_to_numpy=True, normalize_embeddings=True)
         index = faiss.IndexFlatIP(embeddings.shape[1])
-        # Save index to cache
-        print(f"[build_or_load_index] Writing index to {index_path}...")
-        faiss.write_index(index, index_path)
         index.add(embeddings)
+        # Save to cache
         np.save(emb_path, embeddings)
         joblib.dump(chunks, chunks_path)
-        joblib.dump(sources, sources_path)
+        joblib.dump(chunks, sources_path)
         faiss.write_index(index, index_path)
+        saved_chunks = chunks
+        sources = [file_name] * len(chunks)
 
-    return index, list(chunks), list(sources)
+    return index, saved_chunks, sources
 
 
 def retrieve_and_rerank(bi_model, cross_model, index, chunks, sources, query):
@@ -104,7 +122,7 @@ def answer_question(llm, context, query):
 
 # === MAIN ===
 def main():
-    print("[main] Loading models...")
+    # load models
     embed_model = SentenceTransformer(EMBED_MODEL_NAME)
     cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
     llm = Llama(
@@ -115,28 +133,41 @@ def main():
         verbose=False
     )
 
-    docs = parse_documents()
-    index, chunks, sources = build_or_load_index(embed_model, docs)
+    # prepare per-file indices and titles
+    file_indices = {}
+    file_titles = []
+    file_paths = []
+    for file in Path(DOCUMENTS_PATH).glob("*.md"):
+        lines = file.read_text(encoding="utf-8").splitlines()
+        title = lines[0].strip() if lines else file.stem
+        path = lines[1].strip() if len(lines) > 1 else ""
+        file_titles.append(f"{title} | {path}")
+        file_paths.append(file.name)
+        # prepare chunks and index
+        chunks = chunk_text(file)
+        idx, ch, src = build_or_load_index_for_file(file.name, embed_model, chunks)
+        file_indices[file.name] = (idx, ch, src)
 
-    print("\n[main] Ready! Enter your query:")
+    print("[main] Ready to answer questions. Type 'exit' to quit.")
     while True:
-        query = input("\nQuery (or 'exit'): ")
-        if query.lower() == "exit":
+        query = input("Enter your question: ")
+        if query.lower() in ("exit", "quit"):  # allow exit
+            print("Exiting...")
             break
 
-        results = retrieve_and_rerank(
-            embed_model,
-            cross_encoder,
-            index,
-            chunks,
-            sources,
-            query
-        )
+        # select best file(s)
+        selected_files = select_best_files(query, file_titles, file_paths, embed_model)
+        results = []
+        for fname in selected_files:
+            idx, chunks, sources = file_indices[fname]
+            results.extend(
+                retrieve_and_rerank(embed_model, cross_encoder, idx, chunks, sources, query)
+            )
 
-        context = "\n---\n".join([f"{src}:\n{text}" for text, src in results])
+        # generate answer
+        context = "---".join([f"{src}:{text}" for text, src in results])
         answer = answer_question(llm, context, query)
-
-        print(f"\nAnswer:\n{answer}\n")
+        print(f"Answer:{answer}")
 
 
 if __name__ == "__main__":

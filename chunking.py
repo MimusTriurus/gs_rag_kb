@@ -98,6 +98,7 @@ def clean_md_content(chunk):
     chunk = re.sub(r'\n{3,}', '\n\n', chunk)
     return chunk.strip()
 
+
 def split_md_file(file_path, max_chunk_size=1500, overlap=2, clean_markdown=True):
     with open(file_path, 'r', encoding='utf-8') as f:
         content = f.read()
