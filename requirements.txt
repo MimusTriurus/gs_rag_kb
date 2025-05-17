@@ -3,3 +3,6 @@ nltk
 sentence-transformers
 joblib
 llama-cpp-python
+fastapi
+pydantic
+uvicorn
