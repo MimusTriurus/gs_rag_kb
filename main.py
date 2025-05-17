@@ -1,5 +1,4 @@
 import os
-import re
 import faiss
 import joblib
 import numpy as np
@@ -20,7 +19,29 @@ TOP_K_RETRIEVAL = 50
 TOP_K_RERANK = 2
 TOP_K_FILE_SELECT = 1
 
+need_2_refine_query = False
+
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+
+# todo: maybe we have to add a chat history
+def refine_user_prompt(llm, user_query):
+    print("[refine_user_prompt] Refining user prompt...")
+    prompt = (
+        f"You are a text editor. \n"
+        "Your task is to refine the user prompt below, preserving its meaning.\n"
+        "Steps to follow:\n"
+        "1. Identify the main question or request.\n"
+        "2. If there are multiple tasks, list them.\n"
+        "3. Keep the text concise and clear.\n\n"
+        f"Use only the context below to answer.\n\n"
+        f"User's prompt: {user_query}\nRefined user's prompt:"
+    )
+
+    resp = llm(prompt, max_tokens=1024, stop=["\n\n"])
+    refined = resp["choices"][0]["text"].strip()
+    print(f"[refine_user_prompt] Refined prompt: {refined}")
+    return refined
 
 
 def select_best_files(query, file_titles, file_paths, title_encoder, top_k=TOP_K_FILE_SELECT):
@@ -137,12 +158,17 @@ def main():
     file_indices = {}
     file_titles = []
     file_paths = []
+    file_authors = []
+    file_urls = []
     for file in Path(DOCUMENTS_PATH).glob("*.md"):
         lines = file.read_text(encoding="utf-8").splitlines()
         title = lines[0].strip() if lines else file.stem
-        path = lines[1].strip() if len(lines) > 1 else ""
-        file_titles.append(f"{title} | {path}")
+        url = lines[1].strip() if len(lines) > 1 else ""
+        author = lines[2].strip() if len(lines) > 1 else ""
+        file_titles.append(title)
         file_paths.append(file.name)
+        file_authors.append(author)
+        file_urls.append(url)
         # prepare chunks and index
         chunks = chunk_text(file)
         idx, ch, src = build_or_load_index_for_file(file.name, embed_model, chunks)
@@ -155,8 +181,10 @@ def main():
             print("Exiting...")
             break
 
-        # select best file(s)
-        selected_files = select_best_files(query, file_titles, file_paths, embed_model)
+        refined_query = query
+        if need_2_refine_query:
+            refined_query = refine_user_prompt(llm, query)
+        selected_files = select_best_files(refined_query, file_titles, file_paths, embed_model)
         results = []
         for fname in selected_files:
             idx, chunks, sources = file_indices[fname]

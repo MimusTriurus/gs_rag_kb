@@ -1,5 +1,6 @@
-Epic Game Mechanics and AI Systems
-GameDesign/Mechanics/Epic
+GameDesign/Mechanics/Epic/Epic Game Mechanics and AI Systems
+https://ru.wikipedia.org/wiki/Epic_Games
+t_suinny
 
 # Introduction
 

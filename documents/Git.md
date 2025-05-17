@@ -1,5 +1,6 @@
-Getting Started with Git
-Git Installation/Git Configuration/Git Common Issue Resolution Guide
+Getting Started with Git/Git Installation/Git Configuration/Git Common Issue Resolution Guide
+https://git-scm.com/
+s_straustrup
 
 # Installing Git
 ### Windows Systems
