@@ -1,11 +1,15 @@
 import os
+import re
 import faiss
+import nltk
 import joblib
 import numpy as np
 from pathlib import Path
 from llama_cpp import Llama
 from sentence_transformers import SentenceTransformer, CrossEncoder
-from chunking import split_md_file
+from chunking import split_md_into_blocks, process_blocks, create_chunks, clean_md_content
+
+nltk.download("punkt")
 
 # === SETTINGS ===
 DOCUMENTS_PATH = "documents/"
@@ -24,7 +28,6 @@ need_2_refine_query = False
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 
-# todo: maybe we have to add a chat history
 def refine_user_prompt(llm, user_query):
     print("[refine_user_prompt] Refining user prompt...")
     prompt = (
@@ -37,20 +40,15 @@ def refine_user_prompt(llm, user_query):
         f"Use only the context below to answer.\n\n"
         f"User's prompt: {user_query}\nRefined user's prompt:"
     )
-
-    resp = llm(prompt, max_tokens=1024, stop=["\n\n"])
+    resp = llm(prompt, max_tokens=512, stop=["\n\n"])
     refined = resp["choices"][0]["text"].strip()
     print(f"[refine_user_prompt] Refined prompt: {refined}")
     return refined
 
 
 def select_best_files(query, file_titles, file_paths, title_encoder, top_k=TOP_K_FILE_SELECT):
-    """
-    Select top_k files whose title+path embeddings best match the query.
-    """
     title_embs = title_encoder.encode(file_titles, convert_to_numpy=True, normalize_embeddings=True)
     query_emb = title_encoder.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-    # cosine via inner product
     scores = np.dot(title_embs, query_emb.T).squeeze()
     best_idxs = np.argsort(-scores)[:top_k]
     selected = [file_paths[i] for i in best_idxs]
@@ -59,17 +57,19 @@ def select_best_files(query, file_titles, file_paths, title_encoder, top_k=TOP_K
 
 
 def chunk_text(file_path, max_chunk_size=MAX_CHUNK_SIZE, overlap=OVERLAP_BLOCKS):
-    """
-    Read a markdown file and split into cleaned chunks using specialized functions.
-    """
-    md_chunks = split_md_file(file_path, max_chunk_size, overlap, clean_markdown=True)
-    print(f"[chunk_text] Split file {os.path.basename(file_path)} into {len(md_chunks)} chunks.")
-    return md_chunks
+    content = file_path.read_text(encoding="utf-8").splitlines()
+    body = "\n".join(content[3:])
+    blocks = split_md_into_blocks(body)
+    processed_blocks = process_blocks(blocks, max_chunk_size)
+    chunks = create_chunks(processed_blocks, max_chunk_size, overlap)
+    cleaned = [clean_md_content(chunk) for chunk in chunks]
+    print(f"[chunk_text] File '{file_path.name}' -> {len(cleaned)} chunks (skipped metadata)")
+    return cleaned
 
 
 def parse_documents():
     print("\n[parse_documents] Parsing documents and creating chunks...")
-    docs = []  # list of (chunk, source)
+    docs = []
     for file in Path(DOCUMENTS_PATH).glob("*.md"):
         print(f"[parse_documents] Processing file: {file.name}")
         chunks = chunk_text(file)
@@ -80,9 +80,6 @@ def parse_documents():
 
 
 def build_or_load_index_for_file(file_name, embed_model, chunks):
-    """
-    Build or load a FAISS index for a single document (file_name).
-    """
     tag = Path(file_name).stem
     tag_dir = os.path.join(CACHE_DIR, tag)
     os.makedirs(tag_dir, exist_ok=True)
@@ -103,13 +100,12 @@ def build_or_load_index_for_file(file_name, embed_model, chunks):
         embeddings = embed_model.encode(chunks, convert_to_numpy=True, normalize_embeddings=True)
         index = faiss.IndexFlatIP(embeddings.shape[1])
         index.add(embeddings)
-        # Save to cache
         np.save(emb_path, embeddings)
         joblib.dump(chunks, chunks_path)
-        joblib.dump(chunks, sources_path)
+        sources = [file_name] * len(chunks)
+        joblib.dump(sources, sources_path)
         faiss.write_index(index, index_path)
         saved_chunks = chunks
-        sources = [file_name] * len(chunks)
 
     return index, saved_chunks, sources
 
@@ -143,7 +139,6 @@ def answer_question(llm, context, query):
 
 # === MAIN ===
 def main():
-    # load models
     embed_model = SentenceTransformer(EMBED_MODEL_NAME)
     cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
     llm = Llama(
@@ -154,22 +149,18 @@ def main():
         verbose=False
     )
 
-    # prepare per-file indices and titles
     file_indices = {}
     file_titles = []
     file_paths = []
-    file_authors = []
-    file_urls = []
+    file_meta = {}
     for file in Path(DOCUMENTS_PATH).glob("*.md"):
         lines = file.read_text(encoding="utf-8").splitlines()
         title = lines[0].strip() if lines else file.stem
         url = lines[1].strip() if len(lines) > 1 else ""
-        author = lines[2].strip() if len(lines) > 1 else ""
+        author = lines[2].strip() if len(lines) > 2 else ""
         file_titles.append(title)
         file_paths.append(file.name)
-        file_authors.append(author)
-        file_urls.append(url)
-        # prepare chunks and index
+        file_meta[file.name] = (url, author)
         chunks = chunk_text(file)
         idx, ch, src = build_or_load_index_for_file(file.name, embed_model, chunks)
         file_indices[file.name] = (idx, ch, src)
@@ -177,25 +168,28 @@ def main():
     print("[main] Ready to answer questions. Type 'exit' to quit.")
     while True:
         query = input("Enter your question: ")
-        if query.lower() in ("exit", "quit"):  # allow exit
+        if query.lower() in ("exit", "quit"):
             print("Exiting...")
             break
 
-        refined_query = query
-        if need_2_refine_query:
-            refined_query = refine_user_prompt(llm, query)
+        refined_query = refine_user_prompt(llm, query) if need_2_refine_query else query
         selected_files = select_best_files(refined_query, file_titles, file_paths, embed_model)
         results = []
         for fname in selected_files:
             idx, chunks, sources = file_indices[fname]
             results.extend(
-                retrieve_and_rerank(embed_model, cross_encoder, idx, chunks, sources, query)
+                retrieve_and_rerank(embed_model, cross_encoder, idx, chunks, sources, refined_query)
             )
 
-        # generate answer
-        context = "---".join([f"{src}:{text}" for text, src in results])
-        answer = answer_question(llm, context, query)
-        print(f"Answer:{answer}")
+        context_parts = []
+        header = ''
+        for text, src in results:
+            url, author = file_meta.get(src, ("", ""))
+            header = f"URL: {url}, Author: {author}"
+            context_parts.append(f"{text}")
+        context = "\n---\n".join(context_parts)
+        answer = answer_question(llm, context, refined_query)
+        print(f"{header}\nAnswer: {answer}\n")
 
 
 if __name__ == "__main__":
