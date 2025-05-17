@@ -6,3 +6,4 @@ llama-cpp-python
 fastapi
 pydantic
 uvicorn
+ollama
