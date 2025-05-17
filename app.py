@@ -2,11 +2,9 @@
 import os
 import asyncio
 from pathlib import Path
-from typing import List
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
@@ -53,15 +51,29 @@ class QueryInput(BaseModel):
 
 class ResponseOutput(BaseModel):
     answer: str
-    context: str
-    sources: List[str]
+    url: str
+    author: str
 
+
+class Feedback(BaseModel):
+    query: str
+    liked: bool
+
+
+feedback_store = []
 
 # Load models and indices at startup
 os.makedirs(CACHE_DIR, exist_ok=True)
 embed_model = SentenceTransformer(EMBED_MODEL_NAME)
 cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
-llm = Llama(model_path=GGUF_MODEL_PATH, embedding=False, n_ctx=2048, n_threads=4, verbose=False)
+llm = Llama(
+    model_path=GGUF_MODEL_PATH,
+    embedding=False,
+    n_ctx=2048,
+    n_threads=4,
+    verbose=False,
+    n_gpu_layers=256,
+)
 file_indices, file_titles, file_paths, file_meta = parse_documents(DOCUMENTS_PATH, embed_model)
 
 
@@ -76,16 +88,29 @@ async def rag_search(input_data: QueryInput):
         res = await run_in_thread(retrieve_and_rerank, embed_model, cross_encoder, index, chunks, sources, query)
         results.extend(res)
     context_parts = []
-    sources_out = []
+    url = ''
+    author = ''
     for text, src in results:
         url, author = file_meta.get(src, ('', ''))
         header = f"Source: {src} (URL: {url}, Author: {author})"
         context_parts.append(f"{header}\n{text}")
-        sources_out.append(src)
     context = '\n---\n'.join(context_parts)
-    # answer = await asyncio.to_thread(answer_question, llm, context, query)
     answer = await run_in_thread(answer_question, llm, context, query)
-    return ResponseOutput(answer=answer, context=context, sources=sources_out)
+    return ResponseOutput(answer=answer, url=url, author=author)
+
+
+@app.post("/feedback")
+async def submit_feedback(feedback: Feedback):
+    feedback_store.append(feedback.dict())
+    return {"status": "received"}
+
+
+@app.get("/chat")
+async def chat_ui():
+    content = ''
+    with open('frontend/index.html', 'r', encoding='utf-8') as f:
+        content = f.read()
+    return HTMLResponse(content)
 
 
 @app.get("/openapi.json")

@@ -7,9 +7,6 @@ from chunking import split_md_file
 from settings import TOP_K_FILE_SELECT, CACHE_DIR, TOP_K_RERANK, TOP_K_RETRIEVAL
 
 
-
-
-
 def parse_documents(doc_path, embed_model):
     file_indices = {}
     file_titles = []
