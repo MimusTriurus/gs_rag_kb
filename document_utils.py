@@ -4,7 +4,7 @@ import numpy as np
 import faiss
 from pathlib import Path
 from chunking import split_md_file
-from settings import TOP_K_FILE_SELECT, CACHE_DIR, TOP_K_RERANK, TOP_K_RETRIEVAL
+from settings import TOP_K_FILE_SELECT, CACHE_DIR, TOP_K_RERANK, TOP_K_RETRIEVAL, clean_chunk_markdown
 
 
 def parse_documents(doc_path, embed_model):
@@ -21,7 +21,7 @@ def parse_documents(doc_path, embed_model):
         file_paths.append(file.name)
         file_meta[file.name] = (url, author)
 
-        chunks = split_md_file(file, clean_markdown=True)
+        chunks = split_md_file(file, clean_markdown=clean_chunk_markdown)
         idx, ch, src = build_or_load_index_for_file(file.name, embed_model, chunks)
         file_indices[file.name] = (idx, ch, src)
 

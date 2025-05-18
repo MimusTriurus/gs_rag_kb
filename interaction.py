@@ -1,5 +1,5 @@
 import ollama
-from settings import LLM_MODEL
+from settings import LLM_MODEL, missing_info_text
 
 
 def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
@@ -26,6 +26,8 @@ def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
 def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
     system_prompt = f"""
     You are an assistant. Use only the context below to answer.
+    Follow these rules STRICTLY:
+    1. If the context doesn't contain needed information, respond ONLY with "{missing_info_text}"
     Format text to HTML using these rules:
     1. Highlight key terms with <strong>
     2. Convert lists to <ul> or <ol> with <li> items
@@ -35,18 +37,26 @@ def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
     6. Escape special characters (&, <, >)
     7. Never add explanations
     8. Preserve original order
-    9. Use <a> tags for URLs  
+    9. Use <a> tags for URLs
     """
 
-    full_prompt = f"Context: {context}\nQuestion: {query}\nAnswer:"
+    full_prompt = (
+        f"Context: {context}\n"
+        f"Based EXCLUSIVELY on this context.\n"
+        f"Question: {query}\n"
+        f"If answer is not in context, say STRICTLY ONLY '{missing_info_text}'"
+        # f"Answer:"
+    )
     max_tokens = 2048 * 2
     response = ollama.generate(
         model=model,
         prompt=full_prompt,
         system=system_prompt,
         options={
-            'temperature': 0.7,
+            'temperature': 0.1,
             'max_tokens': max_tokens,
+            "top_k": 20,
+            "top_p": 0.8
         }
     )
 

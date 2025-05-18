@@ -72,6 +72,21 @@
             from { transform: rotate(0deg) translateZ(0); }
             to { transform: rotate(360deg) translateZ(0); }
         }
+        button {
+            transition: all 0.2s ease;
+        }
+
+        button.active-like {
+            background-color: #45a049 !important;
+            transform: scale(1.15);
+            box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
+        }
+
+        .dislike_btn.active-dislike {
+            background-color: #8b0000 !important;
+            transform: scale(1.15);
+            box-shadow: 0 0 8px rgba(139, 0, 0, 0.5);
+        }
     </style>
 </head>
 <body>
@@ -103,13 +118,35 @@
             spinner.remove();
             sendBtn.disabled = false; sendBtn.style.backgroundColor = '#4caf50';
             const botMsg = document.createElement('div'); botMsg.className='message bot';
-            botMsg.innerHTML = `${data.answer}<br/>
-                                <a href="${data.url}">Document link</a><br/><br/>
-                                <b>Author: </b>${data.author}<br/><br/>
-                                <button onclick="sendFeedback('${query}', true)">👍</button>
-                                <button class="dislike_btn" onclick="sendFeedback('${query}', false)">👎</button>
-                                `;
+
+            if (data.author === '' && data.url === '') {
+                    botMsg.innerHTML = `${data.answer}<br/>`
+            }
+            else {
+                botMsg.innerHTML = `${data.answer}<br/>
+                    <a href="${data.url}">Document link</a><br/><br/>
+                    <b>Author: </b>${data.author}<br/><br/>
+                    <button onclick="handleFeedback(event, '${query}', true)">👍</button>
+                    <button class="dislike_btn" onclick="handleFeedback(event, '${query}', false)">👎</button>
+                    `;
+            }
             chatBox.appendChild(botMsg);
+        }
+        function handleFeedback(event, query, liked) {
+            event.preventDefault();
+            const btn = event.target;
+            const container = btn.closest('.message');
+
+            container.querySelectorAll('button').forEach(b => {
+                b.classList.remove('active-like', 'active-dislike');
+            });
+
+            if (!btn.classList.contains(liked ? 'active-like' : 'active-dislike')) {
+                btn.classList.add(liked ? 'active-like' : 'active-dislike');
+                sendFeedback(query, liked);
+            } else {
+                sendFeedback(query, null);
+            }
         }
         async function sendFeedback(query, liked) {
             await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,liked})});

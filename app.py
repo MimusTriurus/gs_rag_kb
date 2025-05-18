@@ -14,7 +14,9 @@ from settings import (
     EMBED_MODEL_NAME,
     CROSS_ENCODER_NAME,
     LLM_MODEL,
-    need_2_refine_query
+    need_2_refine_query,
+    missing_info_text,
+    no_info_in_knowledge_base_message
 )
 
 import functools
@@ -83,6 +85,10 @@ async def rag_search(input_data: QueryInput):
         context_parts.append(f"{text}")
     context = '\n---\n'.join(context_parts)
     answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
+    if missing_info_text in answer:
+        answer = no_info_in_knowledge_base_message
+        url = ''
+        author = ''
     return ResponseOutput(answer=answer, url=url, author=author)
 
 
