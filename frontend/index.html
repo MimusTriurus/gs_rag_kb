@@ -78,13 +78,15 @@
 
         button.active-like {
             background-color: #45a049 !important;
-            transform: scale(1.15);
+            border: 2px solid white;
+            transform: scale(1.05);
             box-shadow: 0 0 8px rgba(76, 175, 80, 0.5);
         }
 
         .dislike_btn.active-dislike {
             background-color: #8b0000 !important;
-            transform: scale(1.15);
+            border: 2px solid white;
+            transform: scale(1.05);
             box-shadow: 0 0 8px rgba(139, 0, 0, 0.5);
         }
     </style>
@@ -125,7 +127,7 @@
             else {
                 botMsg.innerHTML = `${data.answer}<br/>
                     <a href="${data.url}">Document link</a><br/><br/>
-                    <b>Author: </b>${data.author}<br/><br/>
+                    <b>${data.author}</b><br/><br/>
                     <button onclick="handleFeedback(event, '${query}', true)">👍</button>
                     <button class="dislike_btn" onclick="handleFeedback(event, '${query}', false)">👎</button>
                     `;
