@@ -1,9 +1,7 @@
 faiss-cpu
-nltk
 sentence-transformers
 joblib
-llama-cpp-python
 fastapi
 pydantic
 uvicorn
-ollama
+ollama==0.5.1

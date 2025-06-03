@@ -1,5 +1,9 @@
-import ollama
-from settings import LLM_MODEL, missing_info_text
+from ollama import Client
+from settings import LLM_MODEL, missing_info_text, OLLAMA_BASE_URL
+
+ollama_client = Client(
+    host=OLLAMA_BASE_URL
+)
 
 
 def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
@@ -12,7 +16,7 @@ def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
     User prompt: {user_query}
     Refined user's prompt:"""
 
-    response = ollama.generate(
+    response = ollama_client.generate(
         model=model,
         prompt=prompt,
         options={
@@ -48,7 +52,7 @@ def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
         # f"Answer:"
     )
     max_tokens = 2048 * 2
-    response = ollama.generate(
+    response = ollama_client.generate(
         model=model,
         prompt=full_prompt,
         system=system_prompt,
