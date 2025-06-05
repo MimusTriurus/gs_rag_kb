@@ -1,18 +1,21 @@
-FROM python:3.10-slim-buster
+FROM python:3.10-slim
 
 RUN apt-get update && apt-get install -y \
-    git \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY requirements.txt .
-
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt ./
+RUN pip install --upgrade pip && pip install -r requirements.txt \
+    && apt-get purge -y build-essential \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY . .
 
+RUN chmod +x /app/entrypoint.sh
+
 EXPOSE 5000
 
-CMD ["uvicorn", "src.backend.app:app", "--host", "0.0.0.0", "--port", "5000"]
+ENTRYPOINT ["/app/entrypoint.sh"]

@@ -1,11 +1,11 @@
 import os
 
-DOCUMENTS_PATH = "documents/"
-CACHE_DIR = "cache/"
-EMBED_MODEL_NAME = "models/bge-large-en"
-CROSS_ENCODER_NAME = "models/ms-marco-MiniLM-L6-v2"
+DOCUMENTS_PATH = "/documents/"
+CACHE_DIR = "/cache/"
+EMBED_MODEL_NAME = "/models/bge-large-en"
+CROSS_ENCODER_NAME = "/models/ms-marco-MiniLM-L6-v2"
 LLM_MODEL = "mistral:7b-instruct"
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+OLLAMA_BASE_URL = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 MAX_CHUNK_SIZE = 1500
 OVERLAP_BLOCKS = 2
 TOP_K_RETRIEVAL = 50
