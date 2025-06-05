@@ -1,6 +1,6 @@
 import re
 
-from settings import clean_chunk_markdown
+from source.backend.settings import clean_chunk_markdown
 
 
 def split_md_into_blocks(md_content):

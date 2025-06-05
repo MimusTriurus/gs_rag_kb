@@ -10,7 +10,7 @@ MAX_CHUNK_SIZE = 1500
 OVERLAP_BLOCKS = 2
 TOP_K_RETRIEVAL = 50
 TOP_K_RERANK = 2
-TOP_K_FILE_SELECT = 1
+TOP_K_FILE_SELECT = 2
 
 need_2_refine_query = False
 clean_chunk_markdown = False

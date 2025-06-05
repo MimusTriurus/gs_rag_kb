@@ -1,12 +1,38 @@
 version: '3.8'
 
 services:
-  fastapi-ollama-proxy:
+  app:
     build: .
+    volumes:
+      - models_data:/app/models
+      - cache_data:/app/cache
+      - documents_data:/app/documents
+      - .:/app
     ports:
       - "5000:5000"
-    environment:
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
-    # extra_hosts:
-    #   - "host.docker.internal:host-gateway"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        echo "Checking and cloning models..."
+        if [ ! -d "/app/models/bge-large-en" ]; then
+          echo "Cloning bge-large-en model..."
+          git clone https://huggingface.co/BAAI/bge-large-en /app/models/bge-large-en
+        else
+          echo "bge-large-en model already exists."
+        fi
+        if [ ! -d "/app/models/ms-marco-MiniLM-L6-v2" ]; then
+          echo "Cloning ms-marco-MiniLM-L6-v2 model..."
+          git clone https://huggingface.co/cross-encoder/ms-marco-MiniLM-L6-v2 /app/models/ms-marco-MiniLM-L6-v2
+        else
+          echo "ms-marco-MiniLM-L6-v2 model already exists."
+        fi
+        echo "Model cloning/verification complete."
+        exec "$$@"
+    command: ["uvicorn", "src.backend.app:app", "--host", "0.0.0.0", "--port", "5000"]
     restart: unless-stopped
+
+volumes:
+  models_data:
+  cache_data:
+  documents_data:

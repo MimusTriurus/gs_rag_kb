@@ -6,9 +6,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
-from document_utils import parse_documents, select_best_files, retrieve_and_rerank
-from interaction import refine_user_prompt, answer_question
-from settings import (
+from source.backend.document_utils import parse_documents, select_best_files, retrieve_and_rerank
+from source.backend.interaction import refine_user_prompt, answer_question
+from source.backend.settings import (
     DOCUMENTS_PATH,
     CACHE_DIR,
     EMBED_MODEL_NAME,
@@ -101,7 +101,7 @@ async def submit_feedback(feedback: Feedback):
 @app.get("/chat")
 async def chat_ui():
     content = ''
-    with open('frontend/index.html', 'r', encoding='utf-8') as f:
+    with open('source/frontend/index.html', 'r', encoding='utf-8') as f:
         content = f.read()
     return HTMLResponse(content)
 

@@ -3,8 +3,8 @@ import joblib
 import numpy as np
 import faiss
 from pathlib import Path
-from chunking import split_md_file
-from settings import TOP_K_FILE_SELECT, CACHE_DIR, TOP_K_RERANK, TOP_K_RETRIEVAL, clean_chunk_markdown
+from source.backend.chunking import split_md_file
+from source.backend.settings import TOP_K_FILE_SELECT, CACHE_DIR, TOP_K_RERANK, TOP_K_RETRIEVAL, clean_chunk_markdown
 
 
 def parse_documents(doc_path, embed_model):

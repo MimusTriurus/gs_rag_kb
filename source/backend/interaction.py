@@ -1,5 +1,5 @@
 from ollama import Client
-from settings import LLM_MODEL, missing_info_text, OLLAMA_BASE_URL
+from source.backend.settings import LLM_MODEL, missing_info_text, OLLAMA_BASE_URL
 
 ollama_client = Client(
     host=OLLAMA_BASE_URL
@@ -51,13 +51,13 @@ def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
         f"If answer is not in context, say STRICTLY ONLY '{missing_info_text}'"
         # f"Answer:"
     )
-    max_tokens = 2048 * 2
+    max_tokens = 2048 * 5
     response = ollama_client.generate(
         model=model,
         prompt=full_prompt,
         system=system_prompt,
         options={
-            'temperature': 0.1,
+            'temperature': 0.5,
             'max_tokens': max_tokens,
             "top_k": 20,
             "top_p": 0.8

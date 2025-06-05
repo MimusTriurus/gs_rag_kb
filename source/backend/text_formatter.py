@@ -10,7 +10,7 @@ class TextFormatter:
         self.model = model_name
         self.chunk_size = 3000  # Optimal chunk size for Mistral
 
-    def process_large_text(self, input_text, output_file="documents/formatted.md"):
+    def process_large_text(self, input_text, output_file="documents/connect_2_local_dedic.md"):
         """Main text processing method"""
         chunks = self._split_text(input_text)
         processed_chunks = []
