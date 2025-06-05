@@ -6,6 +6,8 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
+from starlette.responses import JSONResponse
+
 from source.backend.document_utils import parse_documents, select_best_files, retrieve_and_rerank
 from source.backend.interaction import refine_user_prompt, answer_question
 from source.backend.settings import (
@@ -60,6 +62,7 @@ class Feedback(BaseModel):
 
 
 feedback_store = []
+not_found_data_store = []
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 embed_model = SentenceTransformer(EMBED_MODEL_NAME)
@@ -67,7 +70,7 @@ cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
 file_indices, file_titles, file_paths, file_meta = parse_documents(DOCUMENTS_PATH, embed_model)
 
 
-@app.post("/rag/search", response_model=ResponseOutput)
+@app.post("/rag/search", response_model=ResponseOutput, include_in_schema=False)
 async def rag_search(input_data: QueryInput):
     user_query = input_data.query
     query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) if need_2_refine_query else user_query
@@ -81,24 +84,37 @@ async def rag_search(input_data: QueryInput):
     url = ''
     author = ''
     for text, src in results:
-        url, author = file_meta.get(src, ('', ''))
         context_parts.append(f"{text}")
+        # take a meta with the best score
+        if url and author:
+            continue
+        url, author = file_meta.get(src, ('', ''))
     context = '\n---\n'.join(context_parts)
     answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
     if missing_info_text in answer:
+        not_found_data_store.append(user_query)
         answer = no_info_in_knowledge_base_message
         url = ''
         author = ''
     return ResponseOutput(answer=answer, url=url, author=author)
 
 
-@app.post("/feedback")
+@app.post("/feedback", include_in_schema=False)
 async def submit_feedback(feedback: Feedback):
     feedback_store.append(feedback.dict())
     return {"status": "received"}
 
 
-@app.get("/chat")
+@app.get("/get_feedback", response_class=JSONResponse)
+async def get_feedback():
+    return JSONResponse(feedback_store)
+
+@app.get("/get_not_found_data", response_class=JSONResponse)
+async def get_not_found_data():
+    return JSONResponse(not_found_data_store)
+
+
+@app.get("/chat", include_in_schema=False)
 async def chat_ui():
     content = ''
     with open('source/frontend/index.html', 'r', encoding='utf-8') as f:
