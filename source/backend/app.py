@@ -20,6 +20,13 @@ from source.backend.settings import (
     missing_info_text,
     no_info_in_knowledge_base_message
 )
+from source.backend.db_utils import (
+    init_db,
+    insert_feedback,
+    insert_not_found_query,
+    get_all_feedback,
+    get_all_not_found_queries
+)
 
 import functools
 import concurrent.futures
@@ -32,10 +39,8 @@ async def run_in_thread(func, *args, **kwargs):
     return await loop.run_in_executor(executor, functools.partial(func, *args, **kwargs))
 
 
-# Initialize FastAPI
 app = FastAPI(title="Async RAG API", version="1.0", description="RAG search with local LLM")
 
-# Enable CORS if needed
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -59,10 +64,13 @@ class ResponseOutput(BaseModel):
 class Feedback(BaseModel):
     query: str
     liked: bool
+    answer: str
 
 
-feedback_store = []
-not_found_data_store = []
+os.makedirs(CACHE_DIR, exist_ok=True)
+os.makedirs("db", exist_ok=True)
+db_path = os.path.join("db", "data.db")
+init_db(db_path)
 
 os.makedirs(CACHE_DIR, exist_ok=True)
 embed_model = SentenceTransformer(EMBED_MODEL_NAME)
@@ -92,7 +100,7 @@ async def rag_search(input_data: QueryInput):
     context = '\n---\n'.join(context_parts)
     answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
     if missing_info_text in answer:
-        not_found_data_store.append(user_query)
+        insert_not_found_query(db_path, user_query)
         answer = no_info_in_knowledge_base_message
         url = ''
         author = ''
@@ -101,17 +109,19 @@ async def rag_search(input_data: QueryInput):
 
 @app.post("/feedback", include_in_schema=False)
 async def submit_feedback(feedback: Feedback):
-    feedback_store.append(feedback.dict())
+    insert_feedback(db_path, feedback.query, feedback.liked)
     return {"status": "received"}
 
 
 @app.get("/get_feedback", response_class=JSONResponse)
 async def get_feedback():
-    return JSONResponse(feedback_store)
+    data = get_all_feedback(db_path)
+    return JSONResponse([{"query": q, "liked": bool(l)} for q, l in data])
 
 @app.get("/get_not_found_data", response_class=JSONResponse)
 async def get_not_found_data():
-    return JSONResponse(not_found_data_store)
+    data = get_all_not_found_queries(db_path)
+    return JSONResponse([q for (q,) in data])
 
 
 @app.get("/chat", include_in_schema=False)

@@ -57,7 +57,7 @@ def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
         prompt=full_prompt,
         system=system_prompt,
         options={
-            'temperature': 0.5,
+            'temperature': 0.1,
             'max_tokens': max_tokens,
             "top_k": 20,
             "top_p": 0.8

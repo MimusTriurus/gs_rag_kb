@@ -15,6 +15,7 @@
             padding: 20px;
             box-sizing: border-box;
         }
+
         #chat-box {
             width: 80%;
             height: auto;
@@ -49,14 +50,61 @@
         #chat-box::-webkit-scrollbar-thumb:hover {
             background-color: #3a7ac2;
         }
-        .message { max-width: 60%; margin: 5px; padding: 10px; border-radius: 10px; position: relative; }
-        .user { align-self: flex-end; background-color: #4a90e2; color: white; border-bottom-right-radius: 0; }
-        .bot { align-self: flex-start; background-color: #3e3e3e; color: #fff; border-bottom-left-radius: 0; }
-        #input-box { width: 80%; display: flex; }
-        #input-box input { flex: 1; padding: 10px; border-radius: 5px; border: none; background: #3e3e3e; color: #fff; }
-        button { margin-left: 5px; padding: 10px; border: none; border-radius: 5px; background-color: #4caf50; color: white; cursor: pointer; }
-        .dislike_btn { background-color: darkred; }
-        a {color: #4a90e2}
+
+        .message {
+            max-width: 60%;
+            margin: 5px;
+            padding: 10px;
+            border-radius: 10px;
+            position: relative;
+        }
+
+        .user {
+            align-self: flex-end;
+            background-color: #4a90e2;
+            color: white;
+            border-bottom-right-radius: 0;
+        }
+
+        .bot {
+            align-self: flex-start;
+            background-color: #3e3e3e;
+            color: #fff;
+            border-bottom-left-radius: 0;
+        }
+
+        #input-box {
+            width: 80%;
+            display: flex;
+        }
+
+        #input-box input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 5px;
+            border: none;
+            background: #3e3e3e;
+            color: #fff;
+        }
+
+        button {
+            margin-left: 5px;
+            padding: 10px;
+            border: none;
+            border-radius: 5px;
+            background-color: #4caf50;
+            color: white;
+            cursor: pointer;
+        }
+
+        .dislike_btn {
+            background-color: darkred;
+        }
+
+        a {
+            color: #4a90e2
+        }
+
         .spinner {
             width: 24px;
             height: 24px;
@@ -68,10 +116,16 @@
             flex: none;
             align-self: center;
         }
+
         @keyframes spin {
-            from { transform: rotate(0deg) translateZ(0); }
-            to { transform: rotate(360deg) translateZ(0); }
+            from {
+                transform: rotate(0deg) translateZ(0);
+            }
+            to {
+                transform: rotate(360deg) translateZ(0);
+            }
         }
+
         button {
             transition: all 0.2s ease;
         }
@@ -92,68 +146,95 @@
     </style>
 </head>
 <body>
-    <h1>DPS Assistant</h1>
-    <div id="chat-box">
-    </div>
-    <div id="input-box">
-        <input type="text" id="user-input" placeholder="Ask something..." autocomplete="off"/>
-        <button onclick="sendQuery()" id="send-btn">Send</button>
-    </div>
-    <script>
-        const chatBox = document.getElementById('chat-box');
-        const sendBtn = document.getElementById('send-btn');
-        async function sendQuery() {
-            const input = document.getElementById('user-input');
-            const query = input.value.trim(); if (!query) return;
-            const userMsg = document.createElement('div'); userMsg.className='message user'; userMsg.textContent = query;
-            chatBox.appendChild(userMsg);
+<h1>DPS Assistant</h1>
+<div id="chat-box">
+</div>
+<div id="input-box">
+    <input type="text" id="user-input" placeholder="Ask something..." autocomplete="off"/>
+    <button onclick="sendQuery()" id="send-btn">Send</button>
+</div>
+<script>
+    const chatBox = document.getElementById('chat-box');
+    const sendBtn = document.getElementById('send-btn');
 
-            input.value='';
-            sendBtn.disabled = true; sendBtn.style.backgroundColor = '#888';
-            const spinner = document.createElement('div');
-            spinner.className='spinner';
-            chatBox.appendChild(spinner);
-            chatBox.scrollTo({ top: chatBox.scrollHeight, behavior: 'smooth' });
+    function stripHtml(html) {
+        const tempDiv = document.createElement("div");
+        tempDiv.innerHTML = html;
+        return tempDiv.textContent || tempDiv.innerText || "";
+    }
 
-            const res = await fetch('/rag/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query})});
-            const data = await res.json();
-            spinner.remove();
-            sendBtn.disabled = false; sendBtn.style.backgroundColor = '#4caf50';
-            const botMsg = document.createElement('div'); botMsg.className='message bot';
 
-            if (data.author === '' && data.url === '') {
-                    botMsg.innerHTML = `${data.answer}<br/>`
-            }
-            else {
-                botMsg.innerHTML = `${data.answer}<br/>
+    async function sendQuery() {
+        const input = document.getElementById('user-input');
+        const query = input.value.trim();
+        if (!query) return;
+        const userMsg = document.createElement('div');
+        userMsg.className = 'message user';
+        userMsg.textContent = query;
+        chatBox.appendChild(userMsg);
+
+        input.value = '';
+        sendBtn.disabled = true;
+        sendBtn.style.backgroundColor = '#888';
+        const spinner = document.createElement('div');
+        spinner.className = 'spinner';
+        chatBox.appendChild(spinner);
+        chatBox.scrollTo({top: chatBox.scrollHeight, behavior: 'smooth'});
+
+        const res = await fetch('/rag/search', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({query})
+        });
+        const data = await res.json();
+        spinner.remove();
+        sendBtn.disabled = false;
+        sendBtn.style.backgroundColor = '#4caf50';
+        const botMsg = document.createElement('div');
+        botMsg.className = 'message bot';
+        console.log(stripHtml(data.answer));
+        if (data.author === '' && data.url === '') {
+            botMsg.innerHTML = `${data.answer}<br/>`
+        } else {
+            botMsg.innerHTML = `${data.answer}<br/>
                     <a href="${data.url}">Document link</a><br/><br/>
                     <b>${data.author}</b><br/><br/>
-                    <button onclick="handleFeedback(event, '${query}', true)">👍</button>
-                    <button class="dislike_btn" onclick="handleFeedback(event, '${query}', false)">👎</button>
+                    <button onclick="handleFeedback(event, '${query}', true, '')">👍</button>
+                    <button class="dislike_btn" onclick="handleFeedback(event, '${query}', false, '')">👎</button>
                     `;
-            }
-            chatBox.appendChild(botMsg);
         }
-        function handleFeedback(event, query, liked) {
-            event.preventDefault();
-            const btn = event.target;
-            const container = btn.closest('.message');
+        chatBox.appendChild(botMsg);
+    }
 
-            container.querySelectorAll('button').forEach(b => {
-                b.classList.remove('active-like', 'active-dislike');
-            });
+    function handleFeedback(event, query, liked, answer) {
+        event.preventDefault();
+        const btn = event.target;
+        const container = btn.closest('.message');
+        console.log(answer)
+        container.querySelectorAll('button').forEach(b => {
+            b.classList.remove('active-like', 'active-dislike');
+        });
 
-            if (!btn.classList.contains(liked ? 'active-like' : 'active-dislike')) {
-                btn.classList.add(liked ? 'active-like' : 'active-dislike');
-                sendFeedback(query, liked);
-            } else {
-                sendFeedback(query, null);
-            }
+        if (!btn.classList.contains(liked ? 'active-like' : 'active-dislike')) {
+            btn.classList.add(liked ? 'active-like' : 'active-dislike');
+            sendFeedback(query, liked, answer);
+        } else {
+            sendFeedback(query, null, answer);
         }
-        async function sendFeedback(query, liked) {
-            await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query,liked})});
+    }
+
+    async function sendFeedback(query, liked, answer) {
+        let content = JSON.stringify({query, liked, answer});
+        console.log(content)
+        await fetch('/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: content});
+    }
+
+    document.getElementById('user-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            sendQuery();
         }
-        document.getElementById('user-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();sendQuery();}});
-    </script>
+    });
+</script>
 </body>
 </html>
