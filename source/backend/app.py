@@ -1,5 +1,9 @@
 import os
 import asyncio
+from pathlib import Path
+from typing import List, Tuple, Dict, Any
+
+import numpy as np
 from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.responses import HTMLResponse
@@ -8,7 +12,8 @@ from fastapi.openapi.utils import get_openapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from starlette.responses import JSONResponse
 
-from source.backend.document_utils import parse_documents, select_best_files, retrieve_and_rerank
+from source.backend.document_utils import parse_documents, select_best_files, retrieve_and_rerank, load_index_data, \
+    retrieve_and_rerank_new, select_best_files_new
 from source.backend.interaction import refine_user_prompt, answer_question
 from source.backend.settings import (
     DOCUMENTS_PATH,
@@ -75,36 +80,84 @@ init_db(db_path)
 os.makedirs(CACHE_DIR, exist_ok=True)
 embed_model = SentenceTransformer(EMBED_MODEL_NAME)
 cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
-file_indices, file_titles, file_paths, file_meta = parse_documents(DOCUMENTS_PATH, embed_model)
+#file_indices, file_titles, file_paths, file_meta = parse_documents(DOCUMENTS_PATH, embed_model)
+file_indices, file_titles, file_paths, file_meta = load_index_data(Path(DOCUMENTS_PATH))
 
 
 @app.post("/rag/search", response_model=ResponseOutput, include_in_schema=False)
 async def rag_search(input_data: QueryInput):
+    """
+    Выполняет поиск по базе знаний, используя RAG-пайплайн.
+    """
     user_query = input_data.query
-    query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) if need_2_refine_query else user_query
-    selected = await run_in_thread(select_best_files, query, file_titles, file_paths, embed_model)
-    results = []
-    for fname in selected:
-        index, chunks, sources = file_indices[fname]
-        res = await run_in_thread(retrieve_and_rerank, embed_model, cross_encoder, index, chunks, sources, query)
-        results.extend(res)
-    context_parts = []
-    url = ''
-    author = ''
-    for text, src in results:
-        context_parts.append(f"{text}")
-        # take a meta with the best score
-        if url and author:
-            continue
-        url, author = file_meta.get(src, ('', ''))
-    context = '\n---\n'.join(context_parts)
+
+    # 1. Очистка/уточнение запроса пользователя (если включено)
+    query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) \
+        if need_2_refine_query else user_query
+
+    # 2. Выбор наиболее релевантных файлов
+    # Здесь `file_titles` и `file_paths` содержат высокоуровневую информацию о документах
+    selected_files = await run_in_thread(
+        select_best_files_new, query, file_paths, file_meta, embed_model  # embed_model должен быть доступен
+    )
+
+    all_retrieved_results: List[Tuple[str, Dict[str, Any], float]] = []  # Теперь храним (текст, метаданные, оценка)
+
+    # 3. Извлечение и переранжирование чанков для каждого выбранного файла
+    for fname in selected_files:
+        # Извлекаем все три компонента из file_indices
+        faiss_index, chunks_content_list, chunks_metadata_list = file_indices[fname]
+
+        # Вызываем retrieve_and_rerank с новой сигнатурой
+        # bi_encoder и cross_encoder должны быть доступны здесь (глобально или через DI)
+        retrieved_and_ranked_for_file = await run_in_thread(
+            retrieve_and_rerank_new, embed_model, cross_encoder,
+            # Замените embed_model и cross_encoder на ваши фактические переменные
+            faiss_index, chunks_content_list, chunks_metadata_list, query
+        )
+        all_retrieved_results.extend(retrieved_and_ranked_for_file)
+
+    # 4. Сортировка всех полученных результатов по релевантности (оценке)
+    # Это важно, так как retrieve_and_rerank возвращает TOP_K_RERANK для каждого файла.
+    # Нам нужен глобальный топ-K.
+    all_retrieved_results.sort(key=lambda x: x[2], reverse=True)  # x[2] это оценка (float)
+
+    context_parts: List[str] = []
+    best_url: str = ''
+    best_author: str = ''
+
+    # 5. Формирование контекста для LLM и извлечение метаданных для ответа
+    # Проходим по отсортированным результатам и собираем контекст.
+    # Берем URL и автора из самого релевантного чанка (первого в отсортированном списке),
+    # если они еще не установлены.
+    for text_content, metadata_dict, score in all_retrieved_results:
+        context_parts.append(text_content)  # Добавляем текст чанка в контекст
+
+        # Берем URL и автора из *первого* самого релевантного чанка,
+        # который содержит эту информацию.
+        if not best_url and metadata_dict.get('source_url'):
+            best_url = metadata_dict['source_url']
+        if not best_author and metadata_dict.get('author'):
+            best_author = metadata_dict['author']
+
+        # Можно добавить условие для ограничения размера контекста, чтобы не превысить LLM-лимит
+        # if get_token_length('\n---\n'.join(context_parts)) > SOME_LLM_MAX_CONTEXT_TOKENS:
+        #     break
+
+    # Объединяем части контекста
+    context = '\n---\n'.join(context_parts) if context_parts else ""
+
+    # 6. Получение ответа от LLM
     answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
+
+    # 7. Обработка случая "нет информации"
     if missing_info_text in answer:
-        insert_not_found_query(db_path, user_query)
+        await run_in_thread(insert_not_found_query, db_path, user_query)  # db_path должен быть доступен
         answer = no_info_in_knowledge_base_message
-        url = ''
-        author = ''
-    return ResponseOutput(answer=answer, url=url, author=author)
+        best_url = ''  # Сбрасываем URL и автора, если информация не найдена
+        best_author = ''
+
+    return ResponseOutput(answer=answer, url=best_url, author=best_author)
 
 
 @app.post("/feedback", include_in_schema=False)

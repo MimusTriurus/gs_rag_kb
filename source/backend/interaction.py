@@ -1,12 +1,14 @@
 from ollama import Client
 from source.backend.settings import LLM_MODEL, missing_info_text, OLLAMA_BASE_URL
 
+import logging
+
 ollama_client = Client(
     host=OLLAMA_BASE_URL
 )
 
 
-def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
+def refine_user_prompt_(user_query: str, model: str = LLM_MODEL) -> str:
     prompt = f"""
     Your task is to refine the user prompt below, preserving its meaning.
     Steps to follow:
@@ -25,6 +27,55 @@ def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
         }
     )
     return response['response'].strip()
+
+
+def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
+    prompt = f"""
+    You are an intelligent assistant whose task is to refine user queries for a Retrieval-Augmented Generation (RAG) system.
+    The RAG system searches through technical documentation related to Git, TeamCity, infrastructure, and code.
+    Your goal is to rephrase or expand the user's prompt to be more effective for keyword and semantic search.
+
+    Guidelines:
+    - Identify the core problem or request.
+    - Extract key entities, tools, and error messages.
+    - If needed, generate alternative phrasings or related keywords that would improve search relevance.
+    - The output should be concise and contain ONLY the refined query string, without any conversational filler.
+
+    Examples:
+    User prompt: "My build is failing in TeamCity with a 'disk space' error."
+    Refined query: "TeamCity build failure, disk space error, troubleshooting, fix, storage, agent, configuration."
+
+    User prompt: "How do I revert a merge commit in Git?"
+    Refined query: "Git revert merge commit, undo, rollback, fix."
+
+    User prompt: "What is the best way to handle secrets in Jenkins pipelines?"
+    Refined query: "Jenkins pipeline secrets, security, credentials management, environment variables."
+
+    User prompt: {user_query}
+    Refined query:"""
+
+    try:
+        response = ollama_client.generate(
+            model=model,
+            prompt=prompt,
+            options={
+                'temperature': 0.3,
+                'max_tokens': 256,
+            }
+        )
+
+        if 'response' in response and isinstance(response['response'], str):
+            refined_query = response['response'].strip()
+            logging.info(f"Successfully refined query from '{user_query}' to '{refined_query}'")
+            return refined_query
+        else:
+            logging.error(
+                f"Ollama response did not contain 'response' key or it was not a string for query: '{user_query}'. Response: {response}")
+            return user_query
+
+    except Exception as e:
+        logging.error(f"Failed to refine user prompt '{user_query}' using LLM model '{model}': {e}", exc_info=True)
+        return user_query
 
 
 def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
