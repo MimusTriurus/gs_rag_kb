@@ -9,9 +9,9 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 MAX_CHUNK_SIZE = 1500
 OVERLAP_BLOCKS = 2
 TOP_K_RETRIEVAL = 50
-TOP_K_RERANK = 2
+TOP_K_RERANK = 5
 TOP_K_FILE_SELECT = 2
-HELP_LINK = os.getenv("HELP_LINK", "")
+HELP_LINK = f'<br><a href="{os.getenv("HELP_LINK", "")}">Try to specify context</a><br>'
 
 need_2_refine_query = False
 clean_chunk_markdown = False

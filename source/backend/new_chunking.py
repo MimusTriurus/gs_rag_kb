@@ -104,7 +104,7 @@ def split_md_file_effective(
     markdown_splitter = MarkdownTextSplitter(
         chunk_size=max_chunk_size,
         chunk_overlap=chunk_overlap,
-        length_function=get_token_length,
+        # length_function=get_token_length,
     )
 
     raw_chunks = markdown_splitter.split_text(md_content_for_chunking)
