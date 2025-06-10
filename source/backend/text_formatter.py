@@ -78,6 +78,6 @@ class TextFormatter:
 
 if __name__ == "__main__":
     formatter = TextFormatter()
-    with open('input/2021328376.md', 'r', encoding='utf-8') as f:
+    with open('documents/build_agents_list.md', 'r', encoding='utf-8') as f:
         raw_text = f.read()
     formatter.process_large_text(raw_text)
