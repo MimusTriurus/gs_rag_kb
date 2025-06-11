@@ -81,64 +81,67 @@ cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
 file_indices, file_titles, file_paths, file_meta = load_index_data(Path(DOCUMENTS_PATH))
 
 
-@app.post("/rag/search", response_model=ResponseOutput, include_in_schema=False)
-async def rag_search(input_data: QueryInput):
+async def rag_search_impl(input_data: QueryInput):
     user_query = input_data.query
 
     query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) \
         if need_2_refine_query else user_query
+
     # 1. select best candidates for the data extraction
     selected_files = await run_in_thread(
         select_best_files, query, file_paths, file_meta, embed_model
     )
 
-    all_retrieved_results: List[Tuple[str, Dict[str, Any], float]] = []
+    answers: List[Tuple[str, float, str, str]] = []  # answer, score, url, author
 
-    # 2. extract and rerank chunks for the each selected file
+    N = 3
+
     for fname in selected_files:
         faiss_index, chunks_content_list, chunks_metadata_list = file_indices[fname]
         retrieved_and_ranked_for_file = await run_in_thread(
             retrieve_and_rerank, embed_model, cross_encoder,
             faiss_index, chunks_content_list, chunks_metadata_list, query
         )
-        all_retrieved_results.extend(retrieved_and_ranked_for_file)
 
-    # 3. sort results by score
-    all_retrieved_results.sort(key=lambda x: x[2], reverse=True)  # x[2] is a score (float)
+        grouped_blocks = []
+        for i in range(0, len(retrieved_and_ranked_for_file), N):
+            group = retrieved_and_ranked_for_file[i:i+N]
+            if not group:
+                continue
+            combined_text = '\n'.join([item[0] for item in group])
+            metadata = group[0][1]
+            avg_score = sum([item[2] for item in group]) / len(group)
 
-    context_parts: List[str] = []
-    best_url: str = ''
-    best_author: str = ''
+            grouped_blocks.append((combined_text, metadata, avg_score))
 
-    # 4. Generate context for the LLM and extract metadata for the response
-    # Go through the sorted results and gather context.
-    # Take the URL and author from the most relevant chunk (first in the sorted list),
-    # If they are not already set.
-    for text_content, metadata_dict, score in all_retrieved_results:
-        context_parts.append(text_content)
+        context_parts = [block[0] for block in grouped_blocks]
+        context = '\n---\n'.join(context_parts)
 
-        if not best_url and metadata_dict.get('source_url'):
-            best_url = metadata_dict['source_url']
-        if not best_author and metadata_dict.get('author'):
-            best_author = metadata_dict['author']
+        if not context:
+            continue
 
-        # optional. limit the content size
-        # if get_token_length('\n---\n'.join(context_parts)) > SOME_LLM_MAX_CONTEXT_TOKENS:
-        #     break
+        answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
 
-    context = '\n---\n'.join(context_parts) if context_parts else ""
+        if missing_info_text not in answer:
+            best_metadata = grouped_blocks[0][1]
+            best_url = best_metadata.get('source_url', '')
+            best_author = best_metadata.get('author', '')
+            avg_score = grouped_blocks[0][2]
+            answers.append((answer, avg_score, best_url, best_author))
+            # todo: maybe we have to break the circle if we found information
 
-    # 5. get an answer from LLM
-    answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
-
-    # 6. handle "no info" event
-    if missing_info_text in answer:
+    if not answers:
         await run_in_thread(insert_not_found_query, db_path, user_query)
-        answer = no_info_in_knowledge_base_message
-        best_url = ''
-        best_author = ''
+        return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
 
-    return ResponseOutput(answer=answer, url=best_url, author=best_author)
+    best_answer, _, best_url, best_author = max(answers, key=lambda x: x[1])
+
+    return ResponseOutput(answer=best_answer, url=best_url, author=best_author)
+
+
+@app.post("/rag/search", response_model=ResponseOutput, include_in_schema=False)
+async def rag_search(input_data: QueryInput):
+    return await rag_search_impl(input_data)
 
 
 @app.post("/feedback", include_in_schema=False)

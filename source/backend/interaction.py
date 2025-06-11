@@ -1,4 +1,5 @@
 from ollama import Client
+import json
 from source.backend.settings import LLM_MODEL, missing_info_text, OLLAMA_BASE_URL
 
 import logging
@@ -6,27 +7,6 @@ import logging
 ollama_client = Client(
     host=OLLAMA_BASE_URL
 )
-
-
-def refine_user_prompt_(user_query: str, model: str = LLM_MODEL) -> str:
-    prompt = f"""
-    Your task is to refine the user prompt below, preserving its meaning.
-    Steps to follow:
-    1. Identify the main question or request.
-    2. If there are multiple tasks, list them.
-    3. Keep the text concise and clear.
-    User prompt: {user_query}
-    Refined user's prompt:"""
-
-    response = ollama_client.generate(
-        model=model,
-        prompt=prompt,
-        options={
-            'temperature': 0.3,
-            'max_tokens': 256,
-        }
-    )
-    return response['response'].strip()
 
 
 def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
