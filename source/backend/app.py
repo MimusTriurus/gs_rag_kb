@@ -19,9 +19,9 @@ from source.backend.settings import (
     EMBED_MODEL_NAME,
     CROSS_ENCODER_NAME,
     LLM_MODEL,
-    need_2_refine_query,
+    NEED_2_REFINE_QUERY,
     missing_info_text,
-    no_info_in_knowledge_base_message
+    no_info_in_knowledge_base_message, TOP_K_FILE_SELECT
 )
 from source.backend.db_utils import (
     init_db,
@@ -84,12 +84,16 @@ file_indices, file_titles, file_paths, file_meta = load_index_data(Path(DOCUMENT
 async def rag_search_impl(input_data: QueryInput):
     user_query = input_data.query
 
-    query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) \
-        if need_2_refine_query else user_query
+    query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) if NEED_2_REFINE_QUERY else user_query
 
     # 1. select best candidates for the data extraction
     selected_files = await run_in_thread(
-        select_best_files, query, file_paths, file_meta, embed_model
+        select_best_files,
+        query,
+        file_paths,
+        file_meta,
+        embed_model,
+        TOP_K_FILE_SELECT
     )
 
     answers: List[Tuple[str, float, str, str]] = []  # answer, score, url, author
