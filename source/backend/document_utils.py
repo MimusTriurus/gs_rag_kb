@@ -152,45 +152,6 @@ def select_best_files(
     return selected_paths
 
 
-def select_best_files_using_ollama(
-        query: str,
-        file_paths: List[str],
-        file_meta: Dict[str, Dict[str, str]],
-        encoder: Any,
-        top_k: int = TOP_K_FILE_SELECT
-) -> List[str]:
-    global _cached_doc_embeddings, _cached_doc_paths, _cached_doc_metadata_source_strings
-    current_doc_metadata_source_strings = []
-    for f_path in file_paths:
-        current_doc_metadata_source_strings.append(_get_doc_embedding_string(file_meta.get(f_path, {})))
-
-    if (_cached_doc_embeddings is None or
-            _cached_doc_paths != file_paths or
-            _cached_doc_metadata_source_strings != current_doc_metadata_source_strings):
-        # Create a list of strings for embedding from each document's metadata
-        doc_embedding_strings = [_get_doc_embedding_string(file_meta.get(f_path, {})) for f_path in file_paths]
-
-        _cached_doc_embeddings = encoder.encode(
-            doc_embedding_strings, convert_to_numpy=True, normalize_embeddings=True
-        )
-        _cached_doc_paths = list(file_paths)
-        _cached_doc_metadata_source_strings = list(current_doc_metadata_source_strings)
-    else:
-        print("Use cached document embeddings.")
-
-    q_emb = encoder.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-
-    # similarity calculation
-    scores = np.dot(_cached_doc_embeddings, q_emb.T).squeeze()
-
-    # Select top_k indices
-    idxs = np.argsort(-scores)[:top_k]
-
-    selected_paths = [file_paths[i] for i in idxs]
-    print(f"Select {len(selected_paths)} files: {selected_paths}")
-    return selected_paths
-
-
 def retrieve_and_rerank(
         bi_encoder: Any,
         cross_encoder: Any,
