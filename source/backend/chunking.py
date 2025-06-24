@@ -7,6 +7,7 @@ import joblib
 import numpy as np
 from ollama import Client
 from sentence_transformers import SentenceTransformer
+import frontmatter
 
 from source.backend.settings import (
     OLLAMA_BASE_URL,
@@ -46,24 +47,8 @@ def clean_chunk_content(chunk: str) -> str:
 
 
 def extract_document_metadata(content: str) -> Tuple[Dict[str, str], str]:
-    """
-    Extracts the first three lines as document metadata and returns the remaining content.
-    The format of the first three lines is assumed to be:
-    1. Document title / tag set
-    2. Url for the conf page
-    3. Author
-    """
-    lines = content.split('\n')
-
-    doc_metadata = {
-        "document_title": lines[0].strip() if len(lines) > 0 else "N/A",
-        "source_url": lines[1].strip() if len(lines) > 1 else "N/A",
-        "author": lines[2].strip() if len(lines) > 2 else "N/A"
-    }
-
-    remaining_content = '\n'.join(lines[4:])
-
-    return doc_metadata, remaining_content
+    processed_content = frontmatter.loads(content)
+    return processed_content.metadata, processed_content.content
 
 
 def split_md_file(

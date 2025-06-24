@@ -6,3 +6,4 @@ pydantic
 uvicorn
 ollama==0.5.1
 langchain
+python-frontmatter

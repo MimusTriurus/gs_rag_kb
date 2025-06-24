@@ -1,8 +1,3 @@
-Pull Request / PR / python / API / Feature / Backend / Database / Performance
-https://example.com/api_project/pulls/567
-backend_dev
-
----
 ## PR 567
 ## Date: 2025-06-07
 ## Description
@@ -15,7 +10,7 @@ The user list on the admin panel will now load much faster and allow Browse thro
 * Test edge cases: empty results, last page, page number exceeding total pages.
 * Confirm performance improvement for large datasets (e.g., 10,000+ users).
 * Check API response format for pagination metadata (total items, total pages, current page).
----
+
 ## PR 568
 ## Date: 2025-06-06
 ## Description
@@ -28,7 +23,7 @@ The application will feel snappier, especially during startup and operations tha
 * Test caching behavior under load.
 * Monitor Redis activity to ensure data is being cached and retrieved correctly.
 * Confirm no stale data is served from the cache.
----
+
 ## PR 569
 ## Date: 2025-06-04
 ## Description

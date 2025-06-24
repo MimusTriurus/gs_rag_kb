@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import ollama
 import textwrap
 import re
 
-from settings import LLM_MODEL
+from settings import LLM_MODEL, DOCUMENTS_PATH, TEST_DOCUMENTS_PATH
 
 
 class TextFormatter:
@@ -78,6 +80,7 @@ class TextFormatter:
 
 if __name__ == "__main__":
     formatter = TextFormatter()
-    with open('documents/build_agents_list.md', 'r', encoding='utf-8') as f:
-        raw_text = f.read()
-    formatter.process_large_text(raw_text)
+    for file_path_obj in Path(TEST_DOCUMENTS_PATH).glob("*.md"):
+        with open(str(file_path_obj.name), 'r', encoding='utf-8') as f:
+            raw_text = f.read()
+            formatter.process_large_text(raw_text)

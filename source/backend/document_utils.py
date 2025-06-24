@@ -51,6 +51,8 @@ def load_index_data(doc_path: Path) -> Tuple[Dict[str, Any], List[str], List[str
                 saved_chunks_metadata = joblib.load(chunks_metadata_path)
                 index = faiss.read_index(str(index_path))
 
+                first_chunk_metadata = saved_chunks_metadata[0]
+                '''
                 if saved_chunks_metadata:
                     first_chunk_metadata = saved_chunks_metadata[0]
                     doc_title = first_chunk_metadata.get('document_title', file_path_obj.stem)
@@ -60,13 +62,19 @@ def load_index_data(doc_path: Path) -> Tuple[Dict[str, Any], List[str], List[str
                     doc_title = file_path_obj.stem
                     doc_url = ""
                     doc_author = ""
+                '''
+                doc_title = first_chunk_metadata.get('document_title', file_path_obj.stem)
                 file_titles.append(doc_title)
                 file_paths.append(file_name_str)
+                '''
                 file_meta[file_name_str] = {
                     'title': doc_title,
                     'url': doc_url,
                     'author': doc_author
                 }
+                '''
+                file_meta[file_name_str] = first_chunk_metadata
+
                 file_indices[file_name_str] = (index, saved_chunks_content, saved_chunks_metadata)
 
             except Exception as e:
@@ -87,9 +95,9 @@ def _get_doc_embedding_string(doc_meta: Dict[str, Any]) -> str:
     Fields to use can be customized.
     """
     title = doc_meta.get('title', '')
-    url = doc_meta.get('url', '')
-    author = doc_meta.get('author', '')
-    return f"Title: {title}. Author: {author}. Url: {url}."
+    summarized_text = doc_meta.get('summarized_text', '')
+    tags = doc_meta.get('tags', '')
+    return f"Title: {title}. Summary: {summarized_text}. Tags: {' '.join(tags)}."
 
 
 _cached_doc_embeddings: Optional[np.ndarray] = None

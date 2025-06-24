@@ -1,10 +1,6 @@
-GIT / Installation / Usage / Best practice
-https://git-scm.com/
-j_smit
-
 # Git Installation & Usage Best Practices
 
-## 📦 Installation
+## Installation
 
 ### Windows
 1. Download Git from the official site: https://git-scm.com/
@@ -31,7 +27,7 @@ git --version
 
 ---
 
-## ✅ Best Practices
+## Best Practices
 
 ### 1. Set Up Identity
 ```bash
@@ -70,9 +66,9 @@ Encourage code reviews using GitHub/GitLab pull requests for collaborative work.
 
 ---
 
-## ⚠️ Common Problems & Solutions
+## Common Problems & Solutions
 
-### 🔄 Merge Conflicts
+### Merge Conflicts
 **Problem:** Conflicting changes in the same lines of code.
 
 **Solution:**
@@ -91,7 +87,7 @@ Encourage code reviews using GitHub/GitLab pull requests for collaborative work.
   git commit
   ```
 
-### 🚫 Detached HEAD
+### Detached HEAD
 **Problem:** You checked out a commit instead of a branch.
 
 **Solution:**
@@ -99,7 +95,7 @@ Encourage code reviews using GitHub/GitLab pull requests for collaborative work.
 git checkout main
 ```
 
-### 🔒 Permission Denied (SSH/HTTPS)
+### Permission Denied (SSH/HTTPS)
 **Problem:** Push fails due to authentication.
 
 **Solution:**
@@ -111,7 +107,7 @@ git checkout main
   ```
   Add the public key to your GitHub/GitLab profile
 
-### 🧼 Accidental Commit of Secrets
+### Accidental Commit of Secrets
 **Problem:** API keys or secrets are committed
 
 **Solution:**
@@ -124,14 +120,14 @@ git checkout main
 
 ---
 
-## 🛠 Recommended Tools
+## Recommended Tools
 - [GitHub CLI](https://cli.github.com/)
 - [GitLens for VSCode](https://marketplace.visualstudio.com/items?itemName=eamodio.gitlens)
 - [GitKraken](https://www.gitkraken.com/)
 
 ---
 
-## 📚 Further Reading
+## Further Reading
 - https://git-scm.com/book/en/v2
 - https://docs.github.com/en/get-started/quickstart
 - https://www.atlassian.com/git/tutorials

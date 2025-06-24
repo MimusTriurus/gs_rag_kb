@@ -87,6 +87,7 @@ history_manager = RAGHistoryManager(max_history_per_session=5)
 
 session_id = 'session_1'
 
+
 async def rag_search_impl(input_data: QueryInput):
     user_query = input_data.query
 
@@ -125,7 +126,7 @@ async def rag_search_impl(input_data: QueryInput):
 
         grouped_blocks = []
         for i in range(0, len(retrieved_and_ranked_for_file), N):
-            group = retrieved_and_ranked_for_file[i:i+N]
+            group = retrieved_and_ranked_for_file[i:i + N]
             if not group:
                 continue
             combined_text = '\n'.join([item[0] for item in group])
@@ -147,7 +148,7 @@ async def rag_search_impl(input_data: QueryInput):
         answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
         if MISSING_INFO_TEXT not in answer:
             best_metadata = grouped_blocks[0][1]
-            best_url = best_metadata.get('source_url', '')
+            best_url = best_metadata.get('url', '')
             best_author = best_metadata.get('author', '')
             avg_score = grouped_blocks[0][2]
             answers.append((answer, avg_score, best_url, best_author, context_parts))
@@ -194,6 +195,7 @@ async def submit_feedback(feedback: Feedback):
 async def get_feedback():
     data = get_all_feedback(db_path)
     return JSONResponse([{"query": q, "liked": bool(l)} for q, l in data])
+
 
 @app.get("/get_not_found_data", response_class=JSONResponse)
 async def get_not_found_data():

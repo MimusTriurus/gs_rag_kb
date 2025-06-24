@@ -1,8 +1,3 @@
-Pull Request / PR / infrastructure / DevOps / Automation / Security / Monitoring / CI/CD
-https://example.com/infra_repo/pulls/890
-sys_admin
-
----
 ## PR 890
 ## Date: 2025-06-07
 ## Description
@@ -15,7 +10,7 @@ Builds on Jenkins should now be more reliable due to standardized environments. 
 * Check build logs for any unexpected errors or warnings related to the new environment.
 * Confirm correct execution of tests and deployment steps from the new agents.
 * Monitor agent resource usage (CPU, RAM) during builds.
----
+
 ## PR 891
 ## Date: 2025-06-06
 ## Description
@@ -28,7 +23,7 @@ You no longer need to worry about website certificates expiring unexpectedly; th
 * Manually trigger a test renewal for a non-critical domain (if possible).
 * Confirm that new certificates are deployed correctly to web servers after renewal.
 * Check monitoring alerts for certificate expiration (should now be silent).
----
+
 ## PR 892
 ## Date: 2025-06-05
 ## Description

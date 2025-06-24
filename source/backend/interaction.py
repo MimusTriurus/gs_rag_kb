@@ -9,20 +9,29 @@ ollama_client = Client(
     host=OLLAMA_BASE_URL
 )
 
-system_prompt = """
+system_prompt = f"""
 You are an information extraction assistant for a RAG system. Your role is to answer questions using ONLY the provided context.
-CORE RULES:
-1. Use ONLY information from the provided context
-2. Do not add knowledge from your training data
-3. Be precise and factual
-4. If information is not in context, say STRICTLY ONLY '{MISSING_INFO_TEXT}'
 OUTPUT FORMAT - HTML:
 Structure your response as clean HTML with these elements:
 1. Any text that represents headings should be wrapped in the appropriate <h1>–<h6> tags. If no heading level is specified, default to <h2>.
 2. Each paragraph of text should be enclosed within a <p> tag.
 3. If you encounter lists (numbered or bulleted), convert them into the appropriate <ol> (ordered list) or <ul> (unordered list) containing <li> elements.
 4. The output should contain only HTML code without any additional explanations or comments.
+CORE RULES:
+1. Use ONLY information from the PROVIDED CONTEXT
+2. Do not add knowledge from your training data
+3. Be precise and factual
+4. If information is not in context, say STRICTLY ONLY '{MISSING_INFO_TEXT}'
+PROVIDED CONTEXT:
 """
+
+
+def make_system_prompt_with_content(context: str):
+    result = f"""
+    {system_prompt}
+    {context}
+    """
+    return result
 
 
 def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
@@ -75,13 +84,12 @@ def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
 
 
 class OllamaChatSession:
-    def __init__(self, model: str, system_prompt: str, max_history: int = 2):
+    def __init__(self, model: str, sp: str, max_history: int = 2):
         self.model = model
-        self.system_prompt = system_prompt
-        self.max_history = max_history  # Максимальное число сообщений в истории (пары запрос-ответ)
-        self.messages: List[Dict[str, str]] = [
-            {"role": "system", "content": system_prompt}
-        ]
+        self.system_prompt = sp
+        self.max_history = max_history
+        self.messages: List[Dict[str, str]] = []
+        # {"role": "system", "content": system_prompt}
 
     def _prune_history(self):
         # Оставляем system + последние max_history*2 сообщений (пары user/assistant)
@@ -100,20 +108,21 @@ class OllamaChatSession:
 
     def ask(self, context: str, query: str) -> str:
         user_message = f"""
-        CONTEXT:
-        {context}
         QUESTION:
         {query}
-        Provide your response in HTML format following the system instructions.
         """
-        self.messages.append({"role": "user", "content": user_message.strip()})
+
+        current_message = {"role": "user", "content": user_message.strip()}
 
         self._prune_history()
 
         max_tokens = 4096
+
+        tmp_messages = [{"role": "system", "content": make_system_prompt_with_content(context)}] + self.messages + [current_message]
+
         response = ollama_client.chat(
             model=self.model,
-            messages=self.messages,
+            messages=tmp_messages,
             options={
                 'temperature': 0.1,
                 'max_tokens': max_tokens,
@@ -125,7 +134,11 @@ class OllamaChatSession:
         answer: str = response['message']['content'].strip()
         answer = answer.replace('```html', '').replace('```', '')
 
-        self.messages.append({"role": "assistant", "content": self.clean_html_to_one_line(answer)})
+        if MISSING_INFO_TEXT not in answer:
+            self.messages.append(current_message)
+            self.messages.append({"role": "assistant", "content": self.clean_html_to_one_line(answer)})
+        else:
+            print(f'=== SKIP ===')
 
         return answer
 
@@ -178,7 +191,7 @@ def format_answer(query: str, model: str = LLM_MODEL) -> str:
     print(f'===> Format answer:\n{query}')
 
     full_prompt = (
-        "Input text:\n" 
+        "Input text:\n"
         f"{query}"
     )
     max_tokens = 4096
@@ -204,6 +217,7 @@ def format_answer(query: str, model: str = LLM_MODEL) -> str:
 # Глобальная история сообщений для текущего сеанса пользователя
 conversation_history: List[Dict[str, str]] = []
 
+
 def answer_question_history(context_parts: List[str], query: str, model: str = LLM_MODEL) -> str:
     global conversation_history
 
@@ -213,7 +227,7 @@ def answer_question_history(context_parts: List[str], query: str, model: str = L
     conversation_history.append({"role": "user", "content": f"Context: {context}\nQuestion: {query}"})
 
     # Собираем историю + новый запрос
-    messages = [{"role": "system", "content": system_prompt}] + conversation_history
+    messages = [{"role": "system", "content": 'system_prompt'}] + conversation_history
 
     max_tokens = 4096  # снизим до разумного лимита для Mistral-12B
 

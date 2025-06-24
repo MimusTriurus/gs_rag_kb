@@ -1,8 +1,3 @@
-Pull Request / PR / game_design / balance / gameplay / content / UI / Hotfix / Adjustment
-https://example.com/game_repo/pulls/201
-game_designer
-
----
 ## PR 201
 ## Date: 2025-06-07
 ## Description
@@ -15,7 +10,7 @@ The "Pyro Blast" ability will now deal slightly less damage in PvP, promoting mo
 * Conduct multiple PvP matches testing "Pyro Blast" damage against various targets.
 * Confirm damage numbers are consistent with the 15% reduction.
 * Check for any unintended side effects on other abilities or PvE damage.
----
+
 ## PR 202
 ## Date: 2025-06-06
 ## Description
@@ -28,7 +23,7 @@ Crafting legendary items should now feel more achievable for players progressing
 * Craft a selection of legendary items to confirm correct material consumption.
 * Check item tooltip information reflects new costs.
 * Ensure no new exploits or inconsistencies arise from the cost changes.
----
+
 ## PR 203
 ## Date: 2025-06-05
 ## Description

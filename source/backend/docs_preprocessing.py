@@ -2,9 +2,9 @@ import os
 import json
 from typing import List, Dict
 import re
-from nltk.stem import PorterStemmer
 from settings import *
 from ollama import Client
+import frontmatter
 
 # === Настройки ===
 FOLDER_PATH = 'documents_no_meta/'
@@ -15,7 +15,6 @@ ollama_client = Client(
     host=OLLAMA_BASE_URL
 )
 
-stemmer = PorterStemmer()
 
 def load_markdown_files(folder_path: str) -> Dict[str, str]:
     md_files = {}
@@ -77,6 +76,7 @@ def generate_summarized_text(text: str, model: str = OLLAMA_MODEL) -> str:
     prompt = f'''
     Analyze the text and shortly describe what it is about.
     Aim for a compact version that reflects the overall meaning and essence of the text.
+    Maximum 1 sentences. As short as possible!
     Text:
     -----------------------------------
     {text}
@@ -87,12 +87,14 @@ def generate_summarized_text(text: str, model: str = OLLAMA_MODEL) -> str:
         model=model,
         prompt=prompt,
         options={
-            'temperature': 0.7,
-            'max_tokens': 200
+            'temperature': 0.9,
+            'max_tokens': 15
         }
     )
     output: str = response['response'].strip()
+    output = output.replace('\n', '')
     return output
+
 
 def clean_and_stem_tags(tags: List[str]) -> List[str]:
     cleaned_tags = []
@@ -102,31 +104,46 @@ def clean_and_stem_tags(tags: List[str]) -> List[str]:
             cleaned_tags.append(tag)
     return cleaned_tags
 
+
+def extract_headings(md_content, levels=(1, 2, 3)):
+    pattern = re.compile(r"^(#{1,3})\s+(.*)$", re.MULTILINE)
+    headings = set()
+    for match in pattern.finditer(md_content):
+        level = len(match.group(1))
+        if level in levels:
+            header = match.group(2).strip()
+            cleaned_header = re.sub(r'^[\d\s\W_]+', '', header)
+            headings.add(cleaned_header)
+    return list(headings)
+
+
+def make_doc_with_meta(content: str, filename: str, title: str, url: str, author: str):
+    headings = extract_headings(content)
+    summarized_text = generate_summarized_text(content)
+
+    new_post = frontmatter.Post(
+        content,
+        title=title,
+        summarized_text=summarized_text,
+        tags=headings,
+        url=url,
+        author=author
+    )
+
+    with open(f'{DOCUMENTS_PATH}/{filename}', 'w', encoding='utf-8') as f:
+        f.write(frontmatter.dumps(new_post))
+
+
 def tag_documents(folder_path: str):
     md_files = load_markdown_files(folder_path)
-    file_tags = {}
-    file_questions = {}
+
     for filename, content in md_files.items():
         print(f"Processing: {filename}")
+        title = filename
+        source_url = f'https://{filename}.com'
+        author = f'user_{filename}'
+        make_doc_with_meta(content, filename, title, source_url, author)
 
-        summarized_text = generate_summarized_text(content)
-
-        #questions = generate_questions(content)
-        #file_questions[filename] = questions
-
-        tags = generate_tags(summarized_text)
-
-        file_tags[filename] = {
-            "desc": summarized_text,
-            "tags": tags
-            #"questions": questions.split('\n')
-        }
-        #print(f"Tags for {filename}: {filtered_tags}")
-
-    with open("file_tags.json", "w", encoding="utf-8") as f:
-        json.dump(file_tags, f, ensure_ascii=False, indent=2)
-
-    print("Tagging complete. Tags saved to file_tags.json")
 
 if __name__ == "__main__":
-    tag_documents(FOLDER_PATH)
+    tag_documents(TEST_DOCUMENTS_PATH)

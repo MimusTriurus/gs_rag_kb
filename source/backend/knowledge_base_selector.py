@@ -1,6 +1,6 @@
 from typing import List, Dict
 
-from source.backend.new_interaction import OLLAMA_MODEL, ollama_client
+from source.backend.docs_preprocessing import OLLAMA_MODEL, ollama_client
 from source.backend.settings import TOP_K_FILE_SELECT
 
 

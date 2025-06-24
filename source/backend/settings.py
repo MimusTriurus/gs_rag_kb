@@ -1,6 +1,7 @@
 import os
 
 DOCUMENTS_PATH = 'documents/'
+TEST_DOCUMENTS_PATH = 'test_docs/'
 CACHE_DIR = 'cache/'
 EMBED_MODEL_NAME = 'models/bge-large-en'
 CROSS_ENCODER_NAME = 'models/ms-marco-MiniLM-L6-v2'
