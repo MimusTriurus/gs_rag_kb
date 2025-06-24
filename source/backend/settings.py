@@ -10,13 +10,13 @@ MAX_CHUNK_SIZE = 1500
 OVERLAP_BLOCKS = 2
 TOP_K_RETRIEVAL = 50
 TOP_K_RERANK = 5
-TOP_K_FILE_SELECT = os.getenv('TOP_K_FILE_SELECT', 5)
+TOP_K_FILE_SELECT = int(os.getenv('TOP_K_FILE_SELECT', 5))
 HELP_LINK = f'<br><a href="{os.getenv("HELP_LINK", "")}">Try to specify context</a><br>'
 
 NEED_2_REFINE_QUERY = bool(os.getenv('NEED_2_REFINE_QUERY', False))
 clean_chunk_markdown = False
 
-missing_info_text = 'No information'
+MISSING_INFO_TEXT = 'No information'
 no_info_in_knowledge_base_message = f'''
 The information is missing from the knowledge base.
 {HELP_LINK}
@@ -26,3 +26,9 @@ We will analyze your request and update our knowledge base.
 DEFAULT_MAX_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
 CLEAN_MARKDOWN_CONTENT = True
+
+USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE = bool(os.getenv('USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE', False))
+
+USE_CHAT_HISTORY_2_SEARCH = False
+
+REFORMAT_ANSWER_USING_LLM = False

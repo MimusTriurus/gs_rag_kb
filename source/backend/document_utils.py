@@ -195,8 +195,8 @@ def retrieve_and_rerank(
                 'metadata': chunks_metadata_list[i],
                 'index': i
             })
-        else:
-            print(f" Warning: Index {i} is out of range for chunks list (size: {len(chunks_content_list)}). Skip.")
+        #else:
+        #    print(f" Warning: Index {i} is out of range for chunks list (size: {len(chunks_content_list)}). Skip.")
 
     if not retrieved_candidates:
         return []

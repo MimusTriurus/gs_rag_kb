@@ -12,7 +12,9 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 from starlette.responses import JSONResponse
 
 from source.backend.document_utils import load_index_data, retrieve_and_rerank, select_best_files
-from source.backend.interaction import refine_user_prompt, answer_question
+from source.backend.history_storage import RAGHistoryManager, ContextPart
+from source.backend.interaction import refine_user_prompt, answer_question, answer_question_history, format_answer
+from source.backend.knowledge_base_selector import select_best_files_using_ollama
 from source.backend.settings import (
     DOCUMENTS_PATH,
     CACHE_DIR,
@@ -20,8 +22,9 @@ from source.backend.settings import (
     CROSS_ENCODER_NAME,
     LLM_MODEL,
     NEED_2_REFINE_QUERY,
-    missing_info_text,
-    no_info_in_knowledge_base_message, TOP_K_FILE_SELECT
+    MISSING_INFO_TEXT,
+    no_info_in_knowledge_base_message, TOP_K_FILE_SELECT, USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE, USE_CHAT_HISTORY_2_SEARCH,
+    REFORMAT_ANSWER_USING_LLM
 )
 from source.backend.db_utils import (
     init_db,
@@ -80,23 +83,36 @@ embed_model = SentenceTransformer(EMBED_MODEL_NAME)
 cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
 file_indices, file_titles, file_paths, file_meta = load_index_data(Path(DOCUMENTS_PATH))
 
+history_manager = RAGHistoryManager(max_history_per_session=5)
+
+session_id = 'session_1'
 
 async def rag_search_impl(input_data: QueryInput):
     user_query = input_data.query
 
     query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) if NEED_2_REFINE_QUERY else user_query
-
+    selected_files = []
     # 1. select best candidates for the data extraction
-    selected_files = await run_in_thread(
-        select_best_files,
-        query,
-        file_paths,
-        file_meta,
-        embed_model,
-        TOP_K_FILE_SELECT
-    )
+    if USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE:
+        print('==> select files using OLLAMA')
+        selected_files = await run_in_thread(
+            select_best_files_using_ollama,
+            query,
+            file_paths,
+            file_meta,
+        )
+    else:
+        print('==> select files using semantic similarity')
+        selected_files = await run_in_thread(
+            select_best_files,
+            query,
+            file_paths,
+            file_meta,
+            embed_model,
+            TOP_K_FILE_SELECT
+        )
 
-    answers: List[Tuple[str, float, str, str]] = []  # answer, score, url, author
+    answers: List[Tuple[str, float, str, str, list]] = []  # answer, score, url, author
 
     N = 3
 
@@ -119,26 +135,46 @@ async def rag_search_impl(input_data: QueryInput):
             grouped_blocks.append((combined_text, metadata, avg_score))
 
         context_parts = [block[0] for block in grouped_blocks]
-        context = '\n---\n'.join(context_parts)
 
-        if not context:
+        if not context_parts:
             continue
 
-        answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
+        if USE_CHAT_HISTORY_2_SEARCH:
+            context = history_manager.get_formatted_history(session_id, context_parts)
+        else:
+            context = '\n---\n'.join(context_parts)
 
-        if missing_info_text not in answer:
+        answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
+        if MISSING_INFO_TEXT not in answer:
             best_metadata = grouped_blocks[0][1]
             best_url = best_metadata.get('source_url', '')
             best_author = best_metadata.get('author', '')
             avg_score = grouped_blocks[0][2]
-            answers.append((answer, avg_score, best_url, best_author))
+            answers.append((answer, avg_score, best_url, best_author, context_parts))
             # todo: maybe we have to break the circle if we found information
+            break
 
     if not answers:
         await run_in_thread(insert_not_found_query, db_path, user_query)
         return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
 
-    best_answer, _, best_url, best_author = max(answers, key=lambda x: x[1])
+    best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1])
+
+    # test feature
+    if USE_CHAT_HISTORY_2_SEARCH:
+        history_context = list()
+        for cp in best_context_parts:
+            context = ContextPart(cp, best_url, _)
+            history_context.append(context)
+
+        history_manager.add_entry(query, best_answer, history_context, session_id)
+
+        formatted_history = history_manager.get_formatted_history(session_id, [])
+        print(f'{formatted_history}\n')
+
+    if REFORMAT_ANSWER_USING_LLM:
+        best_answer = format_answer(best_answer, LLM_MODEL)
+        print(best_answer)
 
     return ResponseOutput(answer=best_answer, url=best_url, author=best_author)
 
