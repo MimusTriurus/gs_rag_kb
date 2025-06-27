@@ -18,7 +18,7 @@ Structure your response as clean HTML with these elements:
 3. If you encounter lists (numbered or bulleted), convert them into the appropriate <ol> (ordered list) or <ul> (unordered list) containing <li> elements.
 4. The output should contain only HTML code without any additional explanations or comments.
 CORE RULES:
-1. Use ONLY information from the PROVIDED CONTEXT
+1. Use STRICTLY ONLY information from the PROVIDED CONTEXT or information from the CHAT HISTORY.
 2. Do not add knowledge from your training data
 3. Be precise and factual
 4. If information is not in context, say STRICTLY ONLY '{MISSING_INFO_TEXT}'
@@ -26,12 +26,119 @@ PROVIDED CONTEXT:
 """
 
 
-def make_system_prompt_with_content(context: str):
+def make_system_prompt_with_context(context: str):
     result = f"""
     {system_prompt}
     {context}
     """
     return result
+
+def clean_html_to_one_line(text: str) -> str:
+    text_no_tags = re.sub(r'<[^>]+>', '', text)
+    text_flat = re.sub(r'\s+', ' ', text_no_tags)
+    return text_flat.strip()
+
+class OllamaChatSession:
+    def __init__(self, model: str, sp: str, max_history: int = 2):
+        self.model = model
+        self.system_prompt = sp
+        self.max_history = max_history
+        self.messages: List[Dict[str, str]] = []
+
+    def _prune_history(self):
+        while len(self.messages) > 1 + self.max_history * 2:
+            for _ in range(2):
+                if len(self.messages) > 1:
+                    self.messages.pop(1)
+
+
+    def ask(self, context: str, query: str) -> str:
+        user_message = f"""
+        QUESTION:
+        {query}
+        """
+
+        current_message = {"role": "user", "content": user_message.strip()}
+
+        current_messages = [
+            {"role": "system", "content": make_system_prompt_with_context(context)},
+        ]
+        current_messages.extend(self.messages)
+        current_messages.append(current_message)
+
+        self._prune_history()
+
+        max_tokens = 4096
+        response = ollama_client.chat(
+            model=self.model,
+            messages=current_messages,
+            options={
+                'temperature': 0.1,
+                'max_tokens': max_tokens,
+                "top_k": 20,
+                "top_p": 0.8
+            }
+        )
+
+        answer: str = response['message']['content'].strip()
+        answer = answer.replace('```html', '').replace('```', '')
+
+        cleaned_answer = clean_html_to_one_line(answer)
+        if MISSING_INFO_TEXT.lower() not in cleaned_answer.lower():
+            self.messages.append(current_message)
+            self.messages.append({"role": "assistant", "content": clean_html_to_one_line(answer)})
+
+        return answer
+
+    # todo: obsolete
+    def ask_(self, context: str, query: str) -> str:
+        user_message = f"""
+        QUESTION:
+        {query}
+        """
+
+        current_message = {"role": "user", "content": user_message.strip()}
+
+        self._prune_history()
+
+        max_tokens = 2048
+
+        full_prompt = f"""
+        CONTEXT:
+        {context}
+        QUESTION:
+        {query}
+        Provide your response in HTML format following the system instructions.
+        """
+
+        response = ollama_client.generate(
+            model=self.model,
+            system=system_prompt,
+            prompt=full_prompt,
+            options={
+                'temperature': 0.1,
+                'max_tokens': max_tokens,
+                "top_k": 20,
+                "top_p": 0.8
+            }
+        )
+
+        answer: str = response['response'].strip()
+        # sanitize text answer
+        answer = answer.replace('```html', '').replace('```', '')
+
+        if MISSING_INFO_TEXT not in answer:
+            self.messages.append(current_message)
+            self.messages.append({"role": "assistant", "content": clean_html_to_one_line(answer)})
+
+        return answer
+
+
+session = OllamaChatSession(LLM_MODEL, system_prompt)
+
+
+def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
+    return session.ask(context, query)
 
 # todo: is obsolete - remove
 def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
@@ -82,107 +189,6 @@ def refine_user_prompt(user_query: str, model: str = LLM_MODEL) -> str:
         logging.error(f"Failed to refine user prompt '{user_query}' using LLM model '{model}': {e}", exc_info=True)
         return user_query
 
-
-def clean_html_to_one_line(text: str) -> str:
-    # Удаление всех HTML-тегов
-    text_no_tags = re.sub(r'<[^>]+>', '', text)
-    # Замена последовательностей пробелов, табуляций и переводов строк на один пробел
-    text_flat = re.sub(r'\s+', ' ', text_no_tags)
-    return text_flat.strip()
-
-class OllamaChatSession:
-    def __init__(self, model: str, sp: str, max_history: int = 2):
-        self.model = model
-        self.system_prompt = sp
-        self.max_history = max_history
-        self.messages: List[Dict[str, str]] = []
-
-    def _prune_history(self):
-        # Оставляем system + последние max_history*2 сообщений (пары user/assistant)
-        while len(self.messages) > 1 + self.max_history * 2:
-            # Удаляем первую пару user + assistant
-            for _ in range(2):
-                if len(self.messages) > 1:
-                    self.messages.pop(1)
-
-    def ask(self, context: str, query: str) -> str:
-        user_message = f"""
-        QUESTION:
-        {query}
-        """
-
-        current_message = {"role": "user", "content": user_message.strip()}
-
-        self._prune_history()
-
-        max_tokens = 2048
-
-        full_prompt = f"""
-        CONTEXT:
-        {context}
-        QUESTION:
-        {query}
-        Provide your response in HTML format following the system instructions.
-        """
-
-        response = ollama_client.generate(
-            model=self.model,
-            prompt=full_prompt,
-            system=system_prompt,
-            options={
-                'temperature': 0.1,
-                'max_tokens': max_tokens,
-                "top_k": 20,
-                "top_p": 0.8
-            }
-        )
-
-        answer: str = response['response'].strip()
-        # sanitize text answer
-        answer = answer.replace('```html', '').replace('```', '')
-
-        if MISSING_INFO_TEXT not in answer:
-            self.messages.append(current_message)
-            self.messages.append({"role": "assistant", "content": clean_html_to_one_line(answer)})
-        else:
-            print(f'=== SKIP ===')
-
-        return answer
-
-
-session = OllamaChatSession(LLM_MODEL, system_prompt)
-
-
-def answer_question(context: str, query: str, model: str = LLM_MODEL) -> str:
-    return session.ask(context, query)
-
-    full_prompt = f"""
-    CONTEXT:
-    {context}
-    QUESTION:
-    {query}
-    Provide your response in HTML format following the system instructions.
-    """
-
-    max_tokens = 4096
-    response = ollama_client.generate(
-        model=model,
-        prompt=full_prompt,
-        system=system_prompt,
-        options={
-            'temperature': 0.1,
-            'max_tokens': max_tokens,
-            "top_k": 20,
-            "top_p": 0.8
-        }
-    )
-
-    answer: str = response['response'].strip()
-    # sanitize text answer
-    answer = answer.replace('```html', '').replace('```', '')
-
-    return answer.strip()
-
 # todo: remove. this function is inefficient
 def format_answer(query: str, model: str = LLM_MODEL) -> str:
     system_prompt = f"""
@@ -220,9 +226,7 @@ def format_answer(query: str, model: str = LLM_MODEL) -> str:
 
     return answer.strip()
 
-
 # todo: remove. this var is obsolete
-# Глобальная история сообщений для текущего сеанса пользователя
 conversation_history: List[Dict[str, str]] = []
 
 # todo: remove. this function is obsolete
