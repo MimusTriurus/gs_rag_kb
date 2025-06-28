@@ -16,6 +16,7 @@ THRESHOLD_FILE_SELECT = float(os.getenv('THRESHOLD_FILE_SELECT', 0.78))
 THRESHOLD_CHUNKS_RETRIEVE = float(os.getenv('THRESHOLD_CHUNKS_RETRIEVE', 0.7))
 HELP_LINK = f'<br><a href="{os.getenv("HELP_LINK", "")}">Try to specify context</a><br>'
 
+NEED_2_REFINE_QUERY_USING_HISTORY = bool(os.getenv('NEED_2_REFINE_QUERY_USING_HISTORY', False))
 NEED_2_REFINE_QUERY = bool(os.getenv('NEED_2_REFINE_QUERY', False))
 clean_chunk_markdown = False
 

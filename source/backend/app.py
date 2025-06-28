@@ -37,7 +37,7 @@ from source.backend.settings import (
     USE_CHAT_HISTORY_2_SEARCH,
     REFORMAT_ANSWER_USING_LLM,
     THRESHOLD_FILE_SELECT,
-    THRESHOLD_CHUNKS_RETRIEVE
+    THRESHOLD_CHUNKS_RETRIEVE, NEED_2_REFINE_QUERY_USING_HISTORY
 )
 
 executor = concurrent.futures.ThreadPoolExecutor()
@@ -97,9 +97,12 @@ ollama_session = OllamaChatSession(LLM_MODEL, system_prompt_with_history)
 async def rag_search_impl(input_data: QueryInput):
     user_query = input_data.query
 
-    user_query = query_refiner_based_on_history.refine(user_query, ollama_session.messages)
-    print(f'refined: {input_data.query} => {user_query}')
+    if NEED_2_REFINE_QUERY_USING_HISTORY:
+        user_query = query_refiner_based_on_history.refine(user_query, ollama_session.messages)
+        print(f'--> refined: {input_data.query} => {user_query}')
+
     query = user_query
+
     if NEED_2_REFINE_QUERY:
         query = await run_in_thread(query_refiner.refine, user_query)
         print(f'==> refined: {user_query} => {query}\n')

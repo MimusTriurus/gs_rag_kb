@@ -59,7 +59,7 @@ def clean_html_to_one_line(text: str) -> str:
 
 
 class OllamaChatSession:
-    def __init__(self, model: str, sp: str, max_history: int = 2):
+    def __init__(self, model: str, sp: str, max_history: int = 3):
         self.model = model
         self.system_prompt = sp
         self.max_history = max_history
@@ -86,7 +86,7 @@ class OllamaChatSession:
             model=self.model,
             messages=current_messages,
             options={
-                'temperature': 0.3,
+                'temperature': 0.1,
                 'max_tokens': max_tokens,
                 "top_k": 20,
                 "top_p": 0.8
