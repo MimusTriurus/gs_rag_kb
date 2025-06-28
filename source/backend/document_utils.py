@@ -97,6 +97,7 @@ def _get_doc_embedding_string(doc_meta: Dict[str, Any]) -> str:
     title = doc_meta.get('title', '')
     summarized_text = doc_meta.get('summarized_text', '')
     tags = doc_meta.get('tags', '')
+    # todo: think about that. do we really need tags?
     return f"Title: {title}. Summary: {summarized_text}. Tags: {' '.join(tags)}."
 
 
@@ -110,7 +111,8 @@ def select_best_files(
         file_paths: List[str],
         file_meta: Dict[str, Dict[str, str]],
         encoder: Any,
-        top_k: int = TOP_K_FILE_SELECT
+        top_k: int = TOP_K_FILE_SELECT,
+        threshold: float = 0.78
 ) -> List[str]:
     """
     Selects the most relevant files based on the query and document metadata,
@@ -123,7 +125,7 @@ def select_best_files(
                                                (e.g., {file_name: {'title': ..., 'url': ..., 'author': ...}}).
         encoder (Any): Model for generating embeddings (bi-encoder).
         top_k (int): Number of top files to select.
-
+        threshold (float): Minimum score for the result to include in final results.
     Returns:
         List[str]: List of file names (paths) that are the most relevant.
     """
@@ -144,19 +146,33 @@ def select_best_files(
         )
         _cached_doc_paths = list(file_paths)
         _cached_doc_metadata_source_strings = list(current_doc_metadata_source_strings)
-    else:
-        print("Use cached document embeddings.")
+    #else:
+    #    print("Use cached document embeddings.")
 
     q_emb = encoder.encode([query], convert_to_numpy=True, normalize_embeddings=True)
 
     # similarity calculation
     scores = np.dot(_cached_doc_embeddings, q_emb.T).squeeze()
+    scores_array = np.array(scores)
+    file_paths_array = np.array(file_paths)
+
+    # Получаем маску элементов, удовлетворяющих условию
+    mask = scores_array >= threshold
+
+    # Применяем маску для выбора нужных элементов
+    best_scores = scores_array[mask]#.tolist()
+    best_files = file_paths_array[mask]#.tolist()
 
     # Select top_k indices
-    idxs = np.argsort(-scores)[:top_k]
+    idxs = np.argsort(-best_scores)[:top_k]
 
-    selected_paths = [file_paths[i] for i in idxs]
-    print(f"Select {len(selected_paths)} files: {selected_paths}")
+    selected_paths = [best_files[i] for i in idxs]
+    selected_scores = [best_scores[i] for i in idxs]
+    print('-------------')
+    print(f"Select {len(selected_paths)} files")
+    for idx in idxs:
+        print(f"File: {best_files[idx]} score: {best_scores[idx]}")
+    print('-------------')
     return selected_paths
 
 
@@ -166,7 +182,8 @@ def retrieve_and_rerank(
         faiss_index: Any,
         chunks_content_list: List[str],
         chunks_metadata_list: List[Dict[str, Any]],
-        query: str
+        query: str,
+        threshold: float = 0.3
 ) -> List[Tuple[str, Dict[str, Any], float]]:
     """
     Extracts relevant chunks from the FAISS index, re-ranks them using cross-encoder
@@ -179,6 +196,7 @@ def retrieve_and_rerank(
         chunks_content_list (List[str]): A list of the text content of all chunks.
         chunks_metadata_list (List[Dict[str, Any]]): List of metadata dictionaries of all chunks.
         query (str): The user's input query.
+        threshold (float): Minimum score after normalization to include in final results.
 
     Returns:
         List[Tuple[str, Dict[str, Any], float]]: A ranked list of tuples,
@@ -186,25 +204,16 @@ def retrieve_and_rerank(
     """
     # 1. Candidate extraction with FAISS (bi-encoder)
     query_emb = bi_encoder.encode([query], convert_to_numpy=True, normalize_embeddings=True)
-
-    # D: distances/estimates, I: indices of found candidates
     D, I = faiss_index.search(query_emb, TOP_K_RETRIEVAL)
 
-    # Get the found chunks and their metadata at indexes I[0]
-    # cands_with_meta = [(chunks_content_list[i], chunks_metadata_list[i]) for i in I[0]]
-
-    # Create a list of extracted candidates, including their indexes
-    # This is useful for debugging and for keeping track of the original position of the chunks
     retrieved_candidates = []
-    for i in I[0]:   # I[0] contains indexes from FAISS for the first (single) query
+    for i in I[0]:
         if 0 <= i < len(chunks_content_list):
             retrieved_candidates.append({
                 'content': chunks_content_list[i],
                 'metadata': chunks_metadata_list[i],
                 'index': i
             })
-        #else:
-        #    print(f" Warning: Index {i} is out of range for chunks list (size: {len(chunks_content_list)}). Skip.")
 
     if not retrieved_candidates:
         return []
@@ -214,20 +223,27 @@ def retrieve_and_rerank(
 
     # 3. Re-ranking with a cross-encoder
     scores = cross_encoder.predict(pairs)
+    arr = np.array(scores, dtype=float)
+    min_val, max_val = arr.min(), arr.max()
+    span = max_val - min_val
 
-    # 4. Matching scores to candidates and sorting them
-    # Now each `ranked_results` element is (score, {'content':..., 'metadata':..., 'index':...})
+    if span == 0:
+        scores = np.ones_like(arr)
+    else:
+        scores = (arr - min_val) / span
+
+    # 4. Matching scores to candidates and filtering by threshold
     ranked_results = []
     for score, cand_data in zip(scores, retrieved_candidates):
-        ranked_results.append((score, cand_data))
+        if score >= threshold:
+            ranked_results.append((score, cand_data))
 
-    # Sorted by grade in descending order
     ranked_results.sort(key=lambda x: x[0], reverse=True)
 
-    # 5. Return TOP_K_RERANK of the best results
-    final_ranked_output = []
-    for score, cand_data in ranked_results[:TOP_K_RERANK]:
-        final_ranked_output.append(
-            (cand_data['content'], cand_data['metadata'], float(score)))
+    # 5. Return top results
+    final_ranked_output = [
+        (cand_data['content'], cand_data['metadata'], float(score))
+        for score, cand_data in ranked_results[:TOP_K_RERANK]
+    ]
 
     return final_ranked_output

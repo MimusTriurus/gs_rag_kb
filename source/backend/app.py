@@ -1,20 +1,28 @@
-import os
 import asyncio
+import concurrent.futures
+import functools
+import os
 from pathlib import Path
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple
 
 from fastapi import FastAPI
-from pydantic import BaseModel
-from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from starlette.responses import JSONResponse
 
+from source.backend.db_utils import (
+    init_db,
+    insert_feedback,
+    insert_not_found_query,
+    get_all_feedback,
+    get_all_not_found_queries
+)
 from source.backend.document_utils import load_index_data, retrieve_and_rerank, select_best_files
-from source.backend.history_storage import RAGHistoryManager, ContextPart
-from source.backend.interaction import refine_user_prompt, answer_question, answer_question_history, format_answer
-from source.backend.knowledge_base_selector import select_best_files_using_ollama
+from source.backend.interaction import answer_question, OllamaChatSession, system_prompt, system_prompt_with_history
+from source.backend.llm_refiners import QueryRefiner, QueryRefinerBasedOnHistory
 from source.backend.settings import (
     DOCUMENTS_PATH,
     CACHE_DIR,
@@ -23,19 +31,14 @@ from source.backend.settings import (
     LLM_MODEL,
     NEED_2_REFINE_QUERY,
     MISSING_INFO_TEXT,
-    no_info_in_knowledge_base_message, TOP_K_FILE_SELECT, USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE, USE_CHAT_HISTORY_2_SEARCH,
-    REFORMAT_ANSWER_USING_LLM
+    no_info_in_knowledge_base_message,
+    TOP_K_FILE_SELECT,
+    USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE,
+    USE_CHAT_HISTORY_2_SEARCH,
+    REFORMAT_ANSWER_USING_LLM,
+    THRESHOLD_FILE_SELECT,
+    THRESHOLD_CHUNKS_RETRIEVE
 )
-from source.backend.db_utils import (
-    init_db,
-    insert_feedback,
-    insert_not_found_query,
-    get_all_feedback,
-    get_all_not_found_queries
-)
-
-import functools
-import concurrent.futures
 
 executor = concurrent.futures.ThreadPoolExecutor()
 
@@ -83,35 +86,34 @@ embed_model = SentenceTransformer(EMBED_MODEL_NAME)
 cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
 file_indices, file_titles, file_paths, file_meta = load_index_data(Path(DOCUMENTS_PATH))
 
-history_manager = RAGHistoryManager(max_history_per_session=5)
-
 session_id = 'session_1'
+
+query_refiner = QueryRefiner(LLM_MODEL)
+query_refiner_based_on_history = QueryRefinerBasedOnHistory(LLM_MODEL)
+
+ollama_session = OllamaChatSession(LLM_MODEL, system_prompt_with_history)
 
 
 async def rag_search_impl(input_data: QueryInput):
     user_query = input_data.query
 
-    query = await run_in_thread(refine_user_prompt, user_query, LLM_MODEL) if NEED_2_REFINE_QUERY else user_query
-    selected_files = []
-    # 1. select best candidates for the data extraction
-    if USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE:
-        print('==> select files using OLLAMA')
-        selected_files = await run_in_thread(
-            select_best_files_using_ollama,
-            query,
-            file_paths,
-            file_meta,
-        )
-    else:
-        print('==> select files using semantic similarity')
-        selected_files = await run_in_thread(
-            select_best_files,
-            query,
-            file_paths,
-            file_meta,
-            embed_model,
-            TOP_K_FILE_SELECT
-        )
+    user_query = query_refiner_based_on_history.refine(user_query, ollama_session.messages)
+    print(f'refined: {input_data.query} => {user_query}')
+    query = user_query
+    if NEED_2_REFINE_QUERY:
+        query = await run_in_thread(query_refiner.refine, user_query)
+        print(f'==> refined: {user_query} => {query}\n')
+
+    print('==> select files using semantic similarity\n')
+    selected_files = await run_in_thread(
+        select_best_files,
+        query,
+        file_paths,
+        file_meta,
+        embed_model,
+        TOP_K_FILE_SELECT,
+        THRESHOLD_FILE_SELECT
+    )
 
     answers: List[Tuple[str, float, str, str, list]] = []  # answer, score, url, author
 
@@ -119,9 +121,16 @@ async def rag_search_impl(input_data: QueryInput):
 
     for fname in selected_files:
         faiss_index, chunks_content_list, chunks_metadata_list = file_indices[fname]
+        # GET CONTEXT DATA
         retrieved_and_ranked_for_file = await run_in_thread(
-            retrieve_and_rerank, embed_model, cross_encoder,
-            faiss_index, chunks_content_list, chunks_metadata_list, query
+            retrieve_and_rerank,
+            embed_model,
+            cross_encoder,
+            faiss_index,
+            chunks_content_list,
+            chunks_metadata_list,
+            query,
+            THRESHOLD_CHUNKS_RETRIEVE
         )
 
         grouped_blocks = []
@@ -140,12 +149,10 @@ async def rag_search_impl(input_data: QueryInput):
         if not context_parts:
             continue
 
-        if USE_CHAT_HISTORY_2_SEARCH:
-            context = history_manager.get_formatted_history(session_id, context_parts)
-        else:
-            context = '\n---\n'.join(context_parts)
+        context = '\n---\n'.join(context_parts)
+        # GENERATA ANSWER USING LLM
+        answer = await run_in_thread(ollama_session.ask, context, query)
 
-        answer = await run_in_thread(answer_question, context, query, LLM_MODEL)
         if MISSING_INFO_TEXT not in answer:
             best_metadata = grouped_blocks[0][1]
             best_url = best_metadata.get('url', '')
@@ -153,30 +160,14 @@ async def rag_search_impl(input_data: QueryInput):
             avg_score = grouped_blocks[0][2]
             answers.append((answer, avg_score, best_url, best_author, context_parts))
             # todo: maybe we have to break the circle if we found information
-            break
+            # break
 
     if not answers:
         await run_in_thread(insert_not_found_query, db_path, user_query)
         return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
 
     best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1])
-
-    # test feature
-    if USE_CHAT_HISTORY_2_SEARCH:
-        history_context = list()
-        for cp in best_context_parts:
-            context = ContextPart(cp, best_url, _)
-            history_context.append(context)
-
-        history_manager.add_entry(query, best_answer, history_context, session_id)
-
-        formatted_history = history_manager.get_formatted_history(session_id, [])
-        print(f'{formatted_history}\n')
-
-    if REFORMAT_ANSWER_USING_LLM:
-        best_answer = format_answer(best_answer, LLM_MODEL)
-        print(best_answer)
-
+    ollama_session.update_history(query, best_answer)
     return ResponseOutput(answer=best_answer, url=best_url, author=best_author)
 
 
