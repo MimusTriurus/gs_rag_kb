@@ -77,9 +77,10 @@ class QueryRefinerBasedOnHistory:
         tags_text = ", ".join(tags) if tags else ""
 
         prompt = f"""
-        Based on the following conversation history and provided tags, rewrite the user's current question
+        Based ONLY on the following conversation history, rewrite the user's current question
         to be more specific, clear, and helpful for a knowledge base search.
-        If history is IRRELEVANT, return the ORIGINAL query verbatim.
+        Do not add information from other sources.
+        If history is IRRELEVANT or EMPTY, return the ORIGINAL query verbatim.
         Only return the rewritten query. Do NOT include explanations or greetings.
         Be brief and concise.
 
@@ -88,11 +89,9 @@ class QueryRefinerBasedOnHistory:
 
         User's current query:
         {current_query}
-
-        Tags: {tags_text}
         """
 
-        prompt = f"""
+        prompt1 = f"""
         If the user's current query is unclear, try rewriting the user's current query.
         to make it more specific, understandable, and useful for searching the knowledge base based on the conversation history below.
         If the user's ORIGINAL query is clear and understandable, return the ORIGINAL user's query verbatim.
@@ -107,20 +106,37 @@ class QueryRefinerBasedOnHistory:
         {current_query}
         """
 
+        prompt = f'''
+        You are an assistant that helps refine user questions.
+        Your task is to rewrite the user's current query to make it more clear, specific, and suitable for knowledge base search.
+        Guidelines:
+        Use only the chat history between the user and the assistant to understand the user's intent.
+        Do not invent or assume new information.
+        Avoid creativity or speculation.
+        Preserve the original meaning of the query.
+        Use a neutral and concise tone.
+        Format:
+        Return only the revised version of the question, without commentary or explanation.
+        Chat history:
+        {history_text}
+        User's question:
+        {current_query}
+        '''
+
         prompt = re.sub(r'\s+', ' ', prompt)
 
-        response = self.ollama_client.chat(
+        response = self.ollama_client.generate(
             model=self.model,
-            messages=[{"role": "user", "content": prompt.strip()}],
+            prompt=prompt.strip(),
             options={
-                "temperature": 0.3,
+                "temperature": 0.1,
                 "max_tokens": 256,
                 "top_k": 20,
                 "top_p": 0.8
             }
         )
 
-        refined = response['message']['content'].strip()
+        refined = response['response'].strip()
         return refined
 
 

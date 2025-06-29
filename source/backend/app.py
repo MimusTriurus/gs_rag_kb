@@ -37,7 +37,9 @@ from source.backend.settings import (
     USE_CHAT_HISTORY_2_SEARCH,
     REFORMAT_ANSWER_USING_LLM,
     THRESHOLD_FILE_SELECT,
-    THRESHOLD_CHUNKS_RETRIEVE, NEED_2_REFINE_QUERY_USING_HISTORY
+    THRESHOLD_CHUNKS_RETRIEVE,
+    NEED_2_REFINE_QUERY_USING_HISTORY,
+    HISTORY_LENGTH
 )
 
 executor = concurrent.futures.ThreadPoolExecutor()
@@ -91,10 +93,18 @@ session_id = 'session_1'
 query_refiner = QueryRefiner(LLM_MODEL)
 query_refiner_based_on_history = QueryRefinerBasedOnHistory(LLM_MODEL)
 
-ollama_session = OllamaChatSession(LLM_MODEL, system_prompt_with_history)
+session_system_prompt = system_prompt if NEED_2_REFINE_QUERY_USING_HISTORY else system_prompt_with_history
+
+default_ollama_session = OllamaChatSession(LLM_MODEL, session_system_prompt, HISTORY_LENGTH)
+
+ollama_sessions = {
+    session_id: default_ollama_session
+}
 
 
 async def rag_search_impl(input_data: QueryInput):
+    ollama_session = ollama_sessions.get(session_id, default_ollama_session)
+
     user_query = input_data.query
 
     if NEED_2_REFINE_QUERY_USING_HISTORY:

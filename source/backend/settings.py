@@ -18,6 +18,7 @@ HELP_LINK = f'<br><a href="{os.getenv("HELP_LINK", "")}">Try to specify context<
 
 NEED_2_REFINE_QUERY_USING_HISTORY = bool(os.getenv('NEED_2_REFINE_QUERY_USING_HISTORY', False))
 NEED_2_REFINE_QUERY = bool(os.getenv('NEED_2_REFINE_QUERY', False))
+HISTORY_LENGTH = int(os.getenv('HISTORY_LENGTH', 2))
 clean_chunk_markdown = False
 
 MISSING_INFO_TEXT = 'No information'

@@ -1,6 +1,6 @@
 from ollama import Client
 import json
-from source.backend.settings import LLM_MODEL, MISSING_INFO_TEXT, OLLAMA_BASE_URL
+from source.backend.settings import LLM_MODEL, MISSING_INFO_TEXT, OLLAMA_BASE_URL, NEED_2_REFINE_QUERY_USING_HISTORY
 from typing import List, Tuple, Dict
 import logging
 import re
@@ -66,20 +66,20 @@ class OllamaChatSession:
         self.messages: List[Dict[str, str]] = []
 
     def _prune_history(self):
+        self.messages.clear()
         while len(self.messages) > 1 + self.max_history * 2:
             for _ in range(2):
                 if len(self.messages) > 1:
                     self.messages.pop(1)
 
     def ask(self, context: str, query: str) -> str:
-        user_message = f"""
-        QUESTION:
-        {query}
-        """
+        user_message = f"""{query}"""
         current_messages = [
             {"role": "system", "content": make_system_prompt_with_context(self.system_prompt, context)},
         ]
-        current_messages.extend(self.messages)
+        # we already refined query according to history
+        if not NEED_2_REFINE_QUERY_USING_HISTORY:
+            current_messages.extend(self.messages)
         current_messages.append({"role": "user", "content": user_message.strip()})
         max_tokens = 4096
         response = ollama_client.chat(
@@ -104,8 +104,8 @@ class OllamaChatSession:
 
     def update_history(self, question: str, answer: str):
         self._prune_history()
-        self.messages.append({"role": "user",       "content": f'QUESTION: {clean_html_to_one_line(question)}'})
-        self.messages.append({"role": "assistant",  "content": f'ANSWER: {clean_html_to_one_line(answer)}'})
+        self.messages.append({"role": "user",       "content": f'{clean_html_to_one_line(question)}'})
+        self.messages.append({"role": "assistant",  "content": f'{clean_html_to_one_line(answer)}'})
 
 
 session = OllamaChatSession(LLM_MODEL, system_prompt)
