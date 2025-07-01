@@ -5,6 +5,8 @@ from typing import List, Tuple, Dict
 import logging
 import re
 
+from source.backend.tools import is_llm_answer_valid, clean_html_to_one_line
+
 ollama_client = Client(
     host=OLLAMA_BASE_URL
 )
@@ -52,12 +54,6 @@ def make_system_prompt_with_context(prompt: str, context: str):
     return result
 
 
-def clean_html_to_one_line(text: str) -> str:
-    text_no_tags = re.sub(r'<[^>]+>', '', text)
-    text_flat = re.sub(r'\s+', ' ', text_no_tags)
-    return text_flat.strip()
-
-
 class OllamaChatSession:
     def __init__(self, model: str, sp: str, max_history: int = 3):
         self.model = model
@@ -66,11 +62,13 @@ class OllamaChatSession:
         self.messages: List[Dict[str, str]] = []
 
     def _prune_history(self):
-        self.messages.clear()
-        while len(self.messages) > 1 + self.max_history * 2:
-            for _ in range(2):
-                if len(self.messages) > 1:
-                    self.messages.pop(1)
+        # self.messages.clear()
+        start_index = len(self.messages) - self.max_history
+        if start_index >= 0:
+            self.messages = self.messages[start_index:]
+
+        #while len(self.messages) > self.max_history:
+        #    self.messages.pop(2)
 
     def ask(self, context: str, query: str) -> str:
         user_message = f"""{query}"""
@@ -80,6 +78,7 @@ class OllamaChatSession:
         # we already refined query according to history
         if not NEED_2_REFINE_QUERY_USING_HISTORY:
             current_messages.extend(self.messages)
+
         current_messages.append({"role": "user", "content": user_message.strip()})
         max_tokens = 4096
         response = ollama_client.chat(
@@ -96,16 +95,15 @@ class OllamaChatSession:
         answer: str = response['message']['content'].strip()
         answer = answer.replace('```html', '').replace('```', '')
 
-        cleaned_answer = clean_html_to_one_line(answer)
-        if MISSING_INFO_TEXT.lower() in cleaned_answer.lower():
+        if is_llm_answer_valid(answer):
             return MISSING_INFO_TEXT
 
         return answer
 
     def update_history(self, question: str, answer: str):
-        self._prune_history()
         self.messages.append({"role": "user",       "content": f'{clean_html_to_one_line(question)}'})
         self.messages.append({"role": "assistant",  "content": f'{clean_html_to_one_line(answer)}'})
+        self._prune_history()
 
 
 session = OllamaChatSession(LLM_MODEL, system_prompt)

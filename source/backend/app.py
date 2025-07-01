@@ -41,6 +41,7 @@ from source.backend.settings import (
     NEED_2_REFINE_QUERY_USING_HISTORY,
     HISTORY_LENGTH
 )
+from source.backend.tools import make_answer_about_not_found_data_in_context
 
 executor = concurrent.futures.ThreadPoolExecutor()
 
@@ -102,7 +103,7 @@ ollama_sessions = {
 }
 
 
-async def rag_search_impl(input_data: QueryInput):
+async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
     ollama_session = ollama_sessions.get(session_id, default_ollama_session)
 
     user_query = input_data.query
@@ -128,9 +129,19 @@ async def rag_search_impl(input_data: QueryInput):
         THRESHOLD_FILE_SELECT
     )
 
+    if not selected_files:
+        await run_in_thread(insert_not_found_query, db_path, user_query)
+        return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
+
     answers: List[Tuple[str, float, str, str, list]] = []  # answer, score, url, author
 
     N = 3
+
+    if ollama_session.messages:
+        print('========= HISTORY =========')
+        for m in ollama_session.messages:
+            print(f'{m["role"]} : {m["content"]}')
+        print('====================')
 
     for fname in selected_files:
         faiss_index, chunks_content_list, chunks_metadata_list = file_indices[fname]
@@ -177,7 +188,12 @@ async def rag_search_impl(input_data: QueryInput):
 
     if not answers:
         await run_in_thread(insert_not_found_query, db_path, user_query)
-        return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
+        metas = []
+        for selected_file in selected_files:
+            metas.append(file_meta.get(selected_file, None))
+        if not metas:
+            return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
+        return ResponseOutput(answer=make_answer_about_not_found_data_in_context(metas), url='', author='')
 
     best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1])
     ollama_session.update_history(query, best_answer)

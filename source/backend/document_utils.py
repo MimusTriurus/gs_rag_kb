@@ -98,7 +98,11 @@ def _get_doc_embedding_string(doc_meta: Dict[str, Any]) -> str:
     summarized_text = doc_meta.get('summarized_text', '')
     tags = doc_meta.get('tags', '')
     # todo: think about that. do we really need tags?
-    return f"Title: {title}. Summary: {summarized_text}. Tags: {' '.join(tags)}."
+    try:
+        return f"Title: {title}. Summary: {summarized_text}. Tags: {' '.join(tags)}."
+    except Exception as e:
+        print(e)
+        return f'{e}'
 
 
 _cached_doc_embeddings: Optional[np.ndarray] = None

@@ -1,5 +1,5 @@
 from source.backend.interaction import answer_question, clean_html_to_one_line, OllamaChatSession, system_prompt
-from source.backend.llm_refiners import QueryRefinerBasedOnHistory, QueryRefiner, QueryVariantsRefiner
+from source.backend.llm_refiners import QueryRefinerBasedOnHistory, QueryRefiner, QueryVariantsRefiner, QueryChecker
 from source.backend.settings import LLM_MODEL, OLLAMA_BASE_URL
 
 context = '''
@@ -117,7 +117,19 @@ def test_refiner_if_answer_not_found():
             print(f"The request {q} is not relevant.")
         print()
 
+def is_query_specific():
+    queries = [
+        'Give me a version for this PR',
+        'Give me a version for PR 1234'
+    ]
+    qc = QueryChecker(LLM_MODEL)
+    for q in queries:
+        r = qc.is_relevant(q)
+        print(r)
+    print('=============')
+
+
 
 if __name__ == '__main__':
-    test_refiner_if_answer_not_found()
+    is_query_specific()
     exit(0)

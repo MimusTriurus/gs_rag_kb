@@ -149,7 +149,8 @@ class QueryVariantsRefiner:
         self.metadata_topics = metadata_topics
         self.metadata_topics_set = set(topic.lower() for topic in metadata_topics)
         self.embedding_model = SentenceTransformer(EMBED_MODEL_NAME)
-        self.topic_embeddings = self.embedding_model.encode(metadata_topics, convert_to_numpy=True, normalize_embeddings=True)
+        self.topic_embeddings = self.embedding_model.encode(metadata_topics, convert_to_numpy=True,
+                                                            normalize_embeddings=True)
 
     def is_relevant(self, query: str) -> bool:
         """
@@ -172,7 +173,8 @@ class QueryVariantsRefiner:
         Determine the most relevant topic based on semantic similarity using numpy.
         Returns (best_topic, score) if above threshold, else None.
         """
-        query_embedding = self.embedding_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)  # shape: (1, D)
+        query_embedding = self.embedding_model.encode([query], convert_to_numpy=True,
+                                                      normalize_embeddings=True)  # shape: (1, D)
         scores = np.dot(self.topic_embeddings, query_embedding.T).squeeze()  # shape: (N,)
         max_index = np.argmax(scores)
         max_score = scores[max_index]
@@ -196,9 +198,53 @@ class QueryVariantsRefiner:
         """
 
         response = self.ollama_client.chat(model=self.model, messages=[
-            {"role": "system", "content": "You are a helpful assistant that rewrites unclear or unanswerable questions based on a fixed topic set."},
+            {"role": "system",
+             "content": "You are a helpful assistant that rewrites unclear or unanswerable questions based on a fixed topic set."},
             {"role": "user", "content": prompt}
         ])
 
         suggestions = response['message']['content'].strip().split('\n')
         return [s.strip('- ').strip() for s in suggestions if s.strip()]
+
+
+class QueryChecker:
+    def __init__(self, model: str):
+        self.ollama_client = Client(
+            host=OLLAMA_BASE_URL
+        )
+        self.model = model
+
+    def is_relevant(self, query: str) -> bool:
+        theme = '''
+This text is a list of pull requests for updates in a video game
+version, each containing changes related to technical adjustments (e.g., configuration
+files, logging, language translations), bug fixes, and hotfixes. The changes aim
+to improve the game performance, stability, and user experience across different
+versions (master, 0.40-rc, 0.41-rc, etc.), with a focus on resolving issues that
+may have impacted players' gameplay during version v42.
+        '''
+
+        system_prompt = f'''
+        User query: "{query}"  
+        Question: is this clear and comprehensive enough to search for information on the topic of "{theme}"?
+        Don't be strict.  
+        If not, ask 1-2 clarifying questions.
+        Response format:  
+        is_clear: <yes/no>  
+        follow_up: <list of questions or empty>'''
+
+        response = self.ollama_client.chat(model=self.model, messages=[
+            {
+                "role": "system",
+                "content": system_prompt
+            },
+            {
+                "role": "user",
+                "content": f"{query}"
+            }
+        ], options={
+            'temperature': 0.7,
+            "top_k": 20,
+            "top_p": 0.8
+        })
+        return response['message']['content'].lower()

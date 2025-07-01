@@ -4,6 +4,8 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
 
+from source.backend.settings import LLM_MODEL
+
 
 @dataclass
 class ChatMessage:
@@ -15,7 +17,7 @@ class ChatMessage:
 
 
 class RAGChatSystem:
-    def __init__(self, model_name: str = "llama3.2", max_history: int = 10):
+    def __init__(self, model_name: str = LLM_MODEL, max_history: int = 10):
         """
         Initialize RAG system with chat history support
 
@@ -183,7 +185,7 @@ INSTRUCTION: Answer the following user question, considering all available infor
 def run_test_scenarios():
     """Runs automated test scenarios to demonstrate the system"""
     # Initialize system
-    rag_system = RAGChatSystem(model_name="llama3.2", max_history=5)
+    rag_system = RAGChatSystem(model_name=LLM_MODEL, max_history=5)
 
     # English context
     context = """
