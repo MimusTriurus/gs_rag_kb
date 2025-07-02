@@ -1,6 +1,9 @@
-from source.backend.interaction import answer_question, clean_html_to_one_line, OllamaChatSession, system_prompt
-from source.backend.llm_refiners import QueryRefinerBasedOnHistory, QueryRefiner, QueryVariantsRefiner, QueryChecker
-from source.backend.settings import LLM_MODEL, OLLAMA_BASE_URL
+import json
+
+from source.backend.interaction import answer_question, clean_html_to_one_line, OllamaChatSession, system_prompt, \
+    ollama_client
+from source.backend.llm_tools.llm_refiners import QueryRefinerBasedOnHistory, QueryRefiner, QueryVariantsRefiner, QueryChecker
+from source.backend.settings import LLM_MODEL
 
 context = '''
 ## Pull request: 11215
@@ -128,8 +131,58 @@ def is_query_specific():
         print(r)
     print('=============')
 
+import re
+pattern = re.compile(r"```json\s*([\s\S]*?)```", re.MULTILINE)
+
+def extract_json_blocks(text):
+    return pattern.findall(text)
+
+def test_questions_generator():
+    user_question = 'Give me information about the Pull request 51215?'
+
+    prompt = f'''
+    Identify the general topic of the Сontext and generate 3 short general questions.
+    Format - JSON.
+    Context:
+    {context}
+    '''
+
+    prompt += '''
+    Output format: JSON
+    Example:
+    {
+        "general_topic": "<TOPIC TITLE IS HERE>",
+        "questions": [
+            {
+                "question": "<ANSWER IS HERE>"
+            }
+        ]
+    }
+    '''
+
+    response = ollama_client.generate(
+        model=LLM_MODEL,
+        prompt=prompt,
+        options={
+            'temperature': 0.9,
+            'max_tokens': 2048,
+            "top_k": 20,
+            "top_p": 0.8
+        }
+    )
+    answer = response['response']
+    json_blocks = extract_json_blocks(answer)
+    json_data = None
+    if json_blocks:
+        json_data = json.loads(json_blocks[0])
+    else:
+        json_data = json.loads(answer)
+
+    if json_data:
+        print(json_data)
+    return
 
 
 if __name__ == '__main__':
-    is_query_specific()
+    test_questions_generator()
     exit(0)

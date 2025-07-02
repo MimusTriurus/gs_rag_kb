@@ -95,6 +95,7 @@
             background-color: #4caf50;
             color: white;
             cursor: pointer;
+            transition: all 0.2s ease;
         }
 
         .dislike_btn {
@@ -102,7 +103,7 @@
         }
 
         a {
-            color: #4a90e2
+            color: #4a90e2;
         }
 
         .spinner {
@@ -118,16 +119,8 @@
         }
 
         @keyframes spin {
-            from {
-                transform: rotate(0deg) translateZ(0);
-            }
-            to {
-                transform: rotate(360deg) translateZ(0);
-            }
-        }
-
-        button {
-            transition: all 0.2s ease;
+            from { transform: rotate(0deg) translateZ(0); }
+            to { transform: rotate(360deg) translateZ(0); }
         }
 
         button.active-like {
@@ -143,9 +136,102 @@
             transform: scale(1.05);
             box-shadow: 0 0 8px rgba(139, 0, 0, 0.5);
         }
+
+        #side-menu {
+            border-right: solid 2px #4caf50;
+            position: fixed;
+            top: 0;
+            left: -550px;
+            width: 500px;
+            height: 100%;
+            background-color: #2e2e2e;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.5);
+            overflow-y: auto;
+            transition: left 0.3s ease;
+            z-index: 998;
+        }
+
+        #side-menu label {
+            display: block;
+            margin-top: 10px;
+            margin-bottom: 5px;
+            text-align: left;
+        }
+
+        #side-menu input {
+            margin-bottom: 10px;
+            padding: 8px;
+            background: #3e3e3e;
+            border: none;
+            border-radius: 4px;
+            color: white;
+        }
+
+        #menu-toggle {
+            position: fixed;
+            bottom: 10px;
+            left: 5px;
+            z-index: 999;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #4caf50;
+            color: white;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+        }
+
+        #side-menu.show {
+            left: 0;
+        }
     </style>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 </head>
 <body>
+
+<button id="menu-toggle">☰</button>
+<div id="side-menu">
+    <label for="LLM_MODEL">LLM model</label>
+    <input id="LLM_MODEL" placeholder="LLM_MODEL" value="mistral-nemo:12b">
+
+    <label for="LLM_CREATIVITY">LLM's creativity in responding (0.0-1.0).</label>
+    <input id="LLM_CREATIVITY" type="number" step="0.1" min="0.0" max="1.0" placeholder="LLM_CREATIVITY" value="0.1">
+
+    <label for="QUESTION_REFINER_CREATIVITY">LLM's question refiner creativity (0.0-1.0).</label>
+    <input id="QUESTION_REFINER_CREATIVITY" type="number" step="0.1" min="0.0" max="1.0" placeholder="QUESTION_REFINER_CREATIVITY" value="0.1">
+
+    <label for="TOP_K_FILE_SELECT">Top N file to select from the knowledge base (1-5).</label>
+    <input id="TOP_K_FILE_SELECT" type="number" step="1" min="1" max="5" placeholder="TOP_K_FILE_SELECT" value="3">
+
+    <label for="THRESHOLD_FILE_SELECT">Threshold for the file selection from the knowledge base (0.3-0.99).</label>
+    <input id="THRESHOLD_FILE_SELECT" type="number" step="0.01" min="0.3" max="0.99" placeholder="THRESHOLD_FILE_SELECT" value="0.8">
+
+    <label for="NEED_2_REFINE_QUERY_USING_HISTORY">Refine the user's query using history if it's not obvious.</label>
+    <input type="checkbox" id="NEED_2_REFINE_QUERY_USING_HISTORY" checked>
+
+    <label for="HISTORY_LENGTH">Count of messages in the history (2-10).</label>
+    <input id="HISTORY_LENGTH" type="number" step="1" min="2" max="10" placeholder="HISTORY_LENGTH" value="2">
+
+    <label for="THRESHOLD_CHUNKS_RETRIEVE">Threshold to search for information in the document (0.3-0.99).</label>
+    <input id="THRESHOLD_CHUNKS_RETRIEVE" type="number" step="0.01" min="0.3" max="0.99" placeholder="THRESHOLD_CHUNKS_RETRIEVE" value="0.7">
+
+    <label for="TOP_K_RETRIEVAL">Maximum amount of chunks from the document for searching (50-100).</label>
+    <input id="TOP_K_RETRIEVAL" type="number" step="1" min="50" max="100" placeholder="TOP_K_RETRIEVAL" value="50">
+
+    <label for="TOP_K_RERANK">Maximum amount of chunks from the document for processing (5-10).</label>
+    <input id="TOP_K_RERANK" type="number" step="1" min="5" max="10" placeholder="TOP_K_RERANK" value="5">
+
+    <label for="NEED_2_REFINE_QUERY">Need to modify a base user request.</label>
+    <input type="checkbox" id="NEED_2_REFINE_QUERY">
+
+    <label for="GENERATE_QUESTIONS">Generate possible questions for the provided context.</label>
+    <input type="checkbox" checked id="GENERATE_QUESTIONS">
+</div>
+
 <h1>DPS Assistant</h1>
 <div id="chat-box">
 </div>
@@ -154,6 +240,31 @@
     <button onclick="sendQuery()" id="send-btn">Send</button>
 </div>
 <script>
+    function getSettings() {
+        return {
+            LLM_MODEL: document.getElementById('LLM_MODEL').value,
+            LLM_CREATIVITY: document.getElementById('LLM_CREATIVITY').value,
+            TOP_K_RETRIEVAL: document.getElementById('TOP_K_RETRIEVAL').value,
+            TOP_K_RERANK: document.getElementById('TOP_K_RERANK').value,
+            TOP_K_FILE_SELECT: document.getElementById('TOP_K_FILE_SELECT').value,
+            THRESHOLD_FILE_SELECT: document.getElementById('THRESHOLD_FILE_SELECT').value,
+            THRESHOLD_CHUNKS_RETRIEVE: document.getElementById('THRESHOLD_CHUNKS_RETRIEVE').value,
+            NEED_2_REFINE_QUERY_USING_HISTORY: document.getElementById('NEED_2_REFINE_QUERY_USING_HISTORY').value,
+            QUESTION_REFINER_CREATIVITY: document.getElementById('QUESTION_REFINER_CREATIVITY').value,
+            NEED_2_REFINE_QUERY: document.getElementById('NEED_2_REFINE_QUERY').value,
+            HISTORY_LENGTH: document.getElementById('HISTORY_LENGTH').value,
+            GENERATE_QUESTIONS: document.getElementById('GENERATE_QUESTIONS').value
+        };
+    }
+
+    const menuToggleBtn = document.getElementById('menu-toggle');
+    const sideMenu = document.getElementById('side-menu');
+
+    menuToggleBtn.addEventListener('click', function () {
+        sideMenu.classList.toggle('show');
+        menuToggleBtn.innerText = sideMenu.classList.contains('show') ? '☰' : '☰';
+    });
+
     const chatBox = document.getElementById('chat-box');
     const sendBtn = document.getElementById('send-btn');
 
@@ -180,11 +291,16 @@
         spinner.className = 'spinner';
         chatBox.appendChild(spinner);
         chatBox.scrollTo({top: chatBox.scrollHeight, behavior: 'smooth'});
-
+        console.log(query)
+        let q = {
+            'query': query,
+            'settings': getSettings()
+        }
+        console.log(JSON.stringify(q))
         const res = await fetch('/rag/search', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({query})
+            body: JSON.stringify(q)
         });
         const data = await res.json();
         spinner.remove();
@@ -234,6 +350,10 @@
             e.preventDefault();
             sendQuery();
         }
+    });
+
+    $( document ).ready(function() {
+
     });
 </script>
 </body>

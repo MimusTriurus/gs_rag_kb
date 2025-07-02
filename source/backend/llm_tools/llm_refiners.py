@@ -5,6 +5,8 @@ from typing import List, Dict, Optional, Tuple
 import numpy as np
 from ollama import Client
 from sentence_transformers import SentenceTransformer, util
+
+from source.backend.llm_settings import Settings
 from source.backend.settings import OLLAMA_BASE_URL, EMBED_MODEL_NAME
 
 
@@ -60,51 +62,17 @@ class QueryRefinerBasedOnHistory:
     def refine(
             self,
             current_query: str,
-            history: Optional[List[Dict[str, str]]] = None,
-            tags: Optional[List[str]] = None
+            history: Optional[List[Dict[str, str]]],
+            settings: Settings
     ) -> str:
         if history is None:
             history = []
-        if tags is None:
-            tags = []
 
         # Extract recent user queries and assistant replies
         recent_messages = history[-self.max_context_messages:]
         history_text = "\n".join(
             [f"{msg['role'].capitalize()}: {msg['content'].strip()}" for msg in recent_messages]
         )
-
-        tags_text = ", ".join(tags) if tags else ""
-
-        prompt = f"""
-        Based ONLY on the following conversation history, rewrite the user's current question
-        to be more specific, clear, and helpful for a knowledge base search.
-        Do not add information from other sources.
-        If history is IRRELEVANT or EMPTY, return the ORIGINAL query verbatim.
-        Only return the rewritten query. Do NOT include explanations or greetings.
-        Be brief and concise.
-
-        Conversation history:
-        {history_text}
-
-        User's current query:
-        {current_query}
-        """
-
-        prompt1 = f"""
-        If the user's current query is unclear, try rewriting the user's current query.
-        to make it more specific, understandable, and useful for searching the knowledge base based on the conversation history below.
-        If the user's ORIGINAL query is clear and understandable, return the ORIGINAL user's query verbatim.
-        If the history is IRRELEVANT, return the ORIGINAL user's query verbatim.
-        DO NOT include explanations or greetings.
-        Be brief and concise.
-
-        Conversation history:
-        {history_text}
-
-        User's current query:
-        {current_query}
-        """
 
         prompt = f'''
         You are an assistant that helps refine user questions.
@@ -129,7 +97,7 @@ class QueryRefinerBasedOnHistory:
             model=self.model,
             prompt=prompt.strip(),
             options={
-                "temperature": 0.1,
+                "temperature": settings.QUESTION_REFINER_CREATIVITY(),
                 "max_tokens": 256,
                 "top_k": 20,
                 "top_p": 0.8

@@ -21,23 +21,17 @@ from source.backend.db_utils import (
     get_all_not_found_queries
 )
 from source.backend.document_utils import load_index_data, retrieve_and_rerank, select_best_files
-from source.backend.interaction import answer_question, OllamaChatSession, system_prompt, system_prompt_with_history
-from source.backend.llm_refiners import QueryRefiner, QueryRefinerBasedOnHistory
+from source.backend.interaction import OllamaChatSession, system_prompt, system_prompt_with_history
+from source.backend.llm_settings import Settings
+from source.backend.llm_tools.llm_refiners import QueryRefiner, QueryRefinerBasedOnHistory
 from source.backend.settings import (
     DOCUMENTS_PATH,
     CACHE_DIR,
     EMBED_MODEL_NAME,
     CROSS_ENCODER_NAME,
     LLM_MODEL,
-    NEED_2_REFINE_QUERY,
     MISSING_INFO_TEXT,
     no_info_in_knowledge_base_message,
-    TOP_K_FILE_SELECT,
-    USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE,
-    USE_CHAT_HISTORY_2_SEARCH,
-    REFORMAT_ANSWER_USING_LLM,
-    THRESHOLD_FILE_SELECT,
-    THRESHOLD_CHUNKS_RETRIEVE,
     NEED_2_REFINE_QUERY_USING_HISTORY,
     HISTORY_LENGTH
 )
@@ -61,10 +55,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # Models
 class QueryInput(BaseModel):
     query: str
+    settings: dict
 
 
 class ResponseOutput(BaseModel):
@@ -103,18 +97,23 @@ ollama_sessions = {
 }
 
 
-async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
+async def rag_search_impl(input_data: QueryInput, settings: Settings) -> ResponseOutput:
     ollama_session = ollama_sessions.get(session_id, default_ollama_session)
 
     user_query = input_data.query
 
-    if NEED_2_REFINE_QUERY_USING_HISTORY:
-        user_query = query_refiner_based_on_history.refine(user_query, ollama_session.messages)
+    if settings.NEED_2_REFINE_QUERY_USING_HISTORY():
+        user_query = await run_in_thread(
+            query_refiner_based_on_history.refine,
+            user_query,
+            ollama_session.messages,
+            settings
+        )
         print(f'--> refined: {input_data.query} => {user_query}')
 
     query = user_query
 
-    if NEED_2_REFINE_QUERY:
+    if settings.NEED_2_REFINE_QUERY():
         query = await run_in_thread(query_refiner.refine, user_query)
         print(f'==> refined: {user_query} => {query}\n')
 
@@ -125,8 +124,8 @@ async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
         file_paths,
         file_meta,
         embed_model,
-        TOP_K_FILE_SELECT,
-        THRESHOLD_FILE_SELECT
+        settings.TOP_K_FILE_SELECT(),
+        settings.THRESHOLD_FILE_SELECT()
     )
 
     if not selected_files:
@@ -137,11 +136,13 @@ async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
 
     N = 3
 
-    if ollama_session.messages:
+    if settings.NEED_2_REFINE_QUERY_USING_HISTORY() and ollama_session.messages:
         print('========= HISTORY =========')
         for m in ollama_session.messages:
             print(f'{m["role"]} : {m["content"]}')
         print('====================')
+
+    files_context = {}
 
     for fname in selected_files:
         faiss_index, chunks_content_list, chunks_metadata_list = file_indices[fname]
@@ -154,7 +155,7 @@ async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
             chunks_content_list,
             chunks_metadata_list,
             query,
-            THRESHOLD_CHUNKS_RETRIEVE
+            settings.THRESHOLD_CHUNKS_RETRIEVE()
         )
 
         grouped_blocks = []
@@ -174,8 +175,9 @@ async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
             continue
 
         context = '\n---\n'.join(context_parts)
+        files_context[fname] = context
         # GENERATA ANSWER USING LLM
-        answer = await run_in_thread(ollama_session.ask, context, query)
+        answer = await run_in_thread(ollama_session.ask, context, query, settings)
 
         if MISSING_INFO_TEXT not in answer:
             best_metadata = grouped_blocks[0][1]
@@ -193,7 +195,8 @@ async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
             metas.append(file_meta.get(selected_file, None))
         if not metas:
             return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
-        return ResponseOutput(answer=make_answer_about_not_found_data_in_context(metas), url='', author='')
+
+        return ResponseOutput(answer=make_answer_about_not_found_data_in_context(metas, files_context, settings), url='', author='')
 
     best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1])
     ollama_session.update_history(query, best_answer)
@@ -202,7 +205,8 @@ async def rag_search_impl(input_data: QueryInput) -> ResponseOutput:
 
 @app.post("/rag/search", response_model=ResponseOutput, include_in_schema=False)
 async def rag_search(input_data: QueryInput):
-    return await rag_search_impl(input_data)
+    settings: Settings = Settings(input_data.settings)
+    return await rag_search_impl(input_data, settings)
 
 
 @app.post("/feedback", include_in_schema=False)

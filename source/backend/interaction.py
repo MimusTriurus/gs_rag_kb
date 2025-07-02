@@ -1,5 +1,7 @@
 from ollama import Client
 import json
+
+from source.backend.llm_settings import Settings
 from source.backend.settings import LLM_MODEL, MISSING_INFO_TEXT, OLLAMA_BASE_URL, NEED_2_REFINE_QUERY_USING_HISTORY
 from typing import List, Tuple, Dict
 import logging
@@ -10,6 +12,7 @@ from source.backend.tools import is_llm_answer_valid, clean_html_to_one_line
 ollama_client = Client(
     host=OLLAMA_BASE_URL
 )
+
 
 system_prompt_with_history = f"""
 You are an information extraction assistant for a RAG system. 
@@ -67,10 +70,7 @@ class OllamaChatSession:
         if start_index >= 0:
             self.messages = self.messages[start_index:]
 
-        #while len(self.messages) > self.max_history:
-        #    self.messages.pop(2)
-
-    def ask(self, context: str, query: str) -> str:
+    def ask(self, context: str, query: str, settings: Settings) -> str:
         user_message = f"""{query}"""
         current_messages = [
             {"role": "system", "content": make_system_prompt_with_context(self.system_prompt, context)},
@@ -85,7 +85,7 @@ class OllamaChatSession:
             model=self.model,
             messages=current_messages,
             options={
-                'temperature': 0.1,
+                'temperature': settings.LLM_CREATIVITY(),
                 'max_tokens': max_tokens,
                 "top_k": 20,
                 "top_p": 0.8
@@ -101,8 +101,8 @@ class OllamaChatSession:
         return answer
 
     def update_history(self, question: str, answer: str):
-        self.messages.append({"role": "user",       "content": f'{clean_html_to_one_line(question)}'})
-        self.messages.append({"role": "assistant",  "content": f'{clean_html_to_one_line(answer)}'})
+        self.messages.append({"role": "user", "content": f'{clean_html_to_one_line(question)}'})
+        self.messages.append({"role": "assistant", "content": f'{clean_html_to_one_line(answer)}'})
         self._prune_history()
 
 

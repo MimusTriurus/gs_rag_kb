@@ -12,7 +12,7 @@ OVERLAP_BLOCKS = 2
 TOP_K_RETRIEVAL = 50
 TOP_K_RERANK = 5
 TOP_K_FILE_SELECT = int(os.getenv('TOP_K_FILE_SELECT', 3))
-THRESHOLD_FILE_SELECT = float(os.getenv('THRESHOLD_FILE_SELECT', 0.78))
+THRESHOLD_FILE_SELECT = float(os.getenv('THRESHOLD_FILE_SELECT', 0.8))
 THRESHOLD_CHUNKS_RETRIEVE = float(os.getenv('THRESHOLD_CHUNKS_RETRIEVE', 0.7))
 HELP_LINK = f'<br><a href="{os.getenv("HELP_LINK", "")}">Try to specify context</a><br>'
 
