@@ -76,9 +76,11 @@ class OllamaChatSession:
             {"role": "system", "content": make_system_prompt_with_context(self.system_prompt, context)},
         ]
         # we already refined query according to history
-        if not NEED_2_REFINE_QUERY_USING_HISTORY:
+        # todo: maybe I have to delete this part of the code...
+        '''
+        if NEED_2_REFINE_QUERY_USING_HISTORY:
             current_messages.extend(self.messages)
-
+        '''
         current_messages.append({"role": "user", "content": user_message.strip()})
         max_tokens = 4096
         response = ollama_client.chat(

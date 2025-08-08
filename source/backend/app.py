@@ -55,6 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 # Models
 class QueryInput(BaseModel):
     query: str
@@ -196,7 +197,11 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         if not metas:
             return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
 
-        return ResponseOutput(answer=make_answer_about_not_found_data_in_context(metas, files_context, settings), url='', author='')
+        return ResponseOutput(
+            answer=make_answer_about_not_found_data_in_context(metas, files_context, settings),
+            url='',
+            author=''
+        )
 
     best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1])
     ollama_session.update_history(query, best_answer)

@@ -33,10 +33,10 @@ class Settings(dict):
         return float(self.get('THRESHOLD_CHUNKS_RETRIEVE'))
 
     def NEED_2_REFINE_QUERY_USING_HISTORY(self) -> bool:
-        return self.get('NEED_2_REFINE_QUERY_USING_HISTORY').lower() == 'on'
+        return bool(self.get('NEED_2_REFINE_QUERY_USING_HISTORY'))#.lower() == 'on'
 
     def NEED_2_REFINE_QUERY(self) -> bool:
-        return self.get('NEED_2_REFINE_QUERY').lower() == 'on'
+        return bool(self.get('NEED_2_REFINE_QUERY'))#.lower() == 'on'
 
     def HISTORY_LENGTH(self) -> int:
         return int(self.get('HISTORY_LENGTH'))

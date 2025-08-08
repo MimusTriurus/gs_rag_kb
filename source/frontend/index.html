@@ -211,7 +211,7 @@
     <input id="THRESHOLD_FILE_SELECT" type="number" step="0.01" min="0.3" max="0.99" placeholder="THRESHOLD_FILE_SELECT" value="0.8">
 
     <label for="NEED_2_REFINE_QUERY_USING_HISTORY">Refine the user's query using history if it's not obvious.</label>
-    <input type="checkbox" id="NEED_2_REFINE_QUERY_USING_HISTORY" checked>
+    <input type="checkbox" id="NEED_2_REFINE_QUERY_USING_HISTORY">
 
     <label for="HISTORY_LENGTH">Count of messages in the history (2-10).</label>
     <input id="HISTORY_LENGTH" type="number" step="1" min="2" max="10" placeholder="HISTORY_LENGTH" value="2">
@@ -226,10 +226,10 @@
     <input id="TOP_K_RERANK" type="number" step="1" min="5" max="10" placeholder="TOP_K_RERANK" value="5">
 
     <label for="NEED_2_REFINE_QUERY">Need to modify a base user request.</label>
-    <input type="checkbox" id="NEED_2_REFINE_QUERY">
+    <input type="checkbox" id="NEED_2_REFINE_QUERY" checked>
 
     <label for="GENERATE_QUESTIONS">Generate possible questions for the provided context.</label>
-    <input type="checkbox" checked id="GENERATE_QUESTIONS">
+    <input type="checkbox" id="GENERATE_QUESTIONS">
 </div>
 
 <h1>DPS Assistant</h1>
@@ -249,11 +249,11 @@
             TOP_K_FILE_SELECT: document.getElementById('TOP_K_FILE_SELECT').value,
             THRESHOLD_FILE_SELECT: document.getElementById('THRESHOLD_FILE_SELECT').value,
             THRESHOLD_CHUNKS_RETRIEVE: document.getElementById('THRESHOLD_CHUNKS_RETRIEVE').value,
-            NEED_2_REFINE_QUERY_USING_HISTORY: document.getElementById('NEED_2_REFINE_QUERY_USING_HISTORY').value,
+            NEED_2_REFINE_QUERY_USING_HISTORY: document.getElementById('NEED_2_REFINE_QUERY_USING_HISTORY').checked,
             QUESTION_REFINER_CREATIVITY: document.getElementById('QUESTION_REFINER_CREATIVITY').value,
-            NEED_2_REFINE_QUERY: document.getElementById('NEED_2_REFINE_QUERY').value,
+            NEED_2_REFINE_QUERY: document.getElementById('NEED_2_REFINE_QUERY').checked,
             HISTORY_LENGTH: document.getElementById('HISTORY_LENGTH').value,
-            GENERATE_QUESTIONS: document.getElementById('GENERATE_QUESTIONS').value
+            GENERATE_QUESTIONS: document.getElementById('GENERATE_QUESTIONS').checked
         };
     }
 
@@ -345,15 +345,13 @@
         await fetch('/feedback', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: content});
     }
 
-    document.getElementById('user-input').addEventListener('keydown', e => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            sendQuery();
-        }
-    });
-
     $( document ).ready(function() {
-
+        document.getElementById('user-input').addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendQuery();
+            }
+        });
     });
 </script>
 </body>
