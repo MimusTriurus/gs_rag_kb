@@ -205,10 +205,10 @@
     <input id="QUESTION_REFINER_CREATIVITY" type="number" step="0.1" min="0.0" max="1.0" placeholder="QUESTION_REFINER_CREATIVITY" value="0.1">
 
     <label for="TOP_K_FILE_SELECT">Top N file to select from the knowledge base (1-5).</label>
-    <input id="TOP_K_FILE_SELECT" type="number" step="1" min="1" max="5" placeholder="TOP_K_FILE_SELECT" value="3">
+    <input id="TOP_K_FILE_SELECT" type="number" step="1" min="1" max="5" placeholder="TOP_K_FILE_SELECT" value="2">
 
     <label for="THRESHOLD_FILE_SELECT">Threshold for the file selection from the knowledge base (0.3-0.99).</label>
-    <input id="THRESHOLD_FILE_SELECT" type="number" step="0.01" min="0.3" max="0.99" placeholder="THRESHOLD_FILE_SELECT" value="0.8">
+    <input id="THRESHOLD_FILE_SELECT" type="number" step="0.01" min="0.3" max="0.99" placeholder="THRESHOLD_FILE_SELECT" value="0.7">
 
     <label for="NEED_2_REFINE_QUERY_USING_HISTORY">Refine the user's query using history if it's not obvious.</label>
     <input type="checkbox" id="NEED_2_REFINE_QUERY_USING_HISTORY">
@@ -226,7 +226,7 @@
     <input id="TOP_K_RERANK" type="number" step="1" min="5" max="10" placeholder="TOP_K_RERANK" value="5">
 
     <label for="NEED_2_REFINE_QUERY">Need to modify a base user request.</label>
-    <input type="checkbox" id="NEED_2_REFINE_QUERY" checked>
+    <input type="checkbox" id="NEED_2_REFINE_QUERY">
 
     <label for="GENERATE_QUESTIONS">Generate possible questions for the provided context.</label>
     <input type="checkbox" id="GENERATE_QUESTIONS">

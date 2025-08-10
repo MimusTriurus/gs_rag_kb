@@ -38,7 +38,7 @@ def make_answer_about_not_found_data_in_context(meta_infos: List[dict], files_co
 
     content = ''
     for meta in meta_infos:
-        content += f'<li><a href="{meta["url"]}">{meta["title"]}</a> <br><br><strong>{meta["author"]}</strong></li><br>'
+        content += f'<li><a href="{meta["url"]}">{meta.get("title", "Link")}</a> <br><br><strong>{meta["author"]}</strong></li><br>'
         break
     result = f'''
     <br>The requested information is not found in the context provided.<br>

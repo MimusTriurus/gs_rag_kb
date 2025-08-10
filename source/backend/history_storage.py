@@ -1,10 +1,9 @@
-from typing import List, Dict, Set, Optional, Tuple
+from typing import List, Dict, Set, Optional
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
-import json
 
-from source.backend.chunks_merger import merge_advanced
+from input_data_processing.chunks_merger import merge_advanced
 
 
 @dataclass

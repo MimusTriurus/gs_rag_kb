@@ -5,6 +5,7 @@ from typing import List, Dict, Any, Tuple
 import faiss
 import joblib
 import numpy as np
+from langchain_text_splitters import MarkdownHeaderTextSplitter
 from ollama import Client
 from sentence_transformers import SentenceTransformer
 import frontmatter
@@ -63,6 +64,10 @@ def split_md_file(
 
     doc_metadata['source_file'] = file_path
 
+    headers_to_split_on = [
+        ("#", "Title")
+    ]
+
     markdown_splitter = MarkdownTextSplitter(
         chunk_size=max_chunk_size,
         chunk_overlap=chunk_overlap,
@@ -75,6 +80,57 @@ def split_md_file(
     processed_chunks: List[Dict[str, Any]] = []
 
     for i, raw_chunk in enumerate(raw_chunks):
+        section_heading = ""
+        match = re.search(r'^(#+)\s*(.*)', raw_chunk, re.MULTILINE)
+        if match:
+            heading_level = len(match.group(1))
+            heading_text = match.group(2).strip()
+            section_heading = f"[{'#' * heading_level}] {heading_text}"
+        cleaned_content = raw_chunk
+        if clean_markdown_content:
+            cleaned_content = clean_chunk_content(raw_chunk)
+        if cleaned_content.strip():
+            chunk_metadata = {
+                **doc_metadata,
+                'chunk_id': f"{file_path}_{i}",
+                'section_heading': section_heading if section_heading else None,
+                # 'start_index': raw_chunk.start_index, # todo: only if splitter supports that. need to investigate
+            }
+            processed_chunks.append({
+                'content': cleaned_content.strip(),
+                'metadata': chunk_metadata
+            })
+
+    return processed_chunks
+
+
+def split_md_file_by_header(
+        file_path: str,
+        max_chunk_size: int = 500,
+        chunk_overlap: int = 100,
+        clean_markdown_content: bool = True
+) -> List[Dict[str, Any]]:
+    with open(file_path, 'r', encoding='utf-8') as f:
+        full_content = f.read()
+    doc_metadata, md_content_for_chunking = extract_document_metadata(full_content)
+
+    doc_metadata['source_file'] = file_path
+
+    headers_to_split_on = [
+        ("#", "Title")
+    ]
+
+    markdown_splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=headers_to_split_on,
+        strip_headers=False
+    )
+
+    raw_chunks = markdown_splitter.split_text(md_content_for_chunking)
+
+    processed_chunks: List[Dict[str, Any]] = []
+
+    for i, chunk in enumerate(raw_chunks):
+        raw_chunk = chunk.page_content
         section_heading = ""
         match = re.search(r'^(#+)\s*(.*)', raw_chunk, re.MULTILINE)
         if match:
@@ -170,43 +226,45 @@ def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], L
     file_titles: List[str] = []
     file_paths: List[str] = []
     file_meta: Dict[str, Any] = {}
+    try:
+        for file_path_obj in doc_path.glob("*.md"):
+            file_name_str = str(file_path_obj.name)
+            # for testrails
+            #chunk_data_list = split_md_file_by_header(
+            chunk_data_list = split_md_file(
+                file_path_obj,
+                max_chunk_size=DEFAULT_MAX_CHUNK_SIZE,
+                chunk_overlap=DEFAULT_CHUNK_OVERLAP,
+                clean_markdown_content=CLEAN_MARKDOWN_CONTENT
+            )
 
-    for file_path_obj in doc_path.glob("*.md"):
-        file_name_str = str(file_path_obj.name)
+            if not chunk_data_list:
+                print(f"Warning: File '{file_name_str}' doesn't have valid chunks after processing. Skipping...")
+                continue
 
-        chunk_data_list = split_md_file(
-            file_path_obj,
-            max_chunk_size=DEFAULT_MAX_CHUNK_SIZE,
-            chunk_overlap=DEFAULT_CHUNK_OVERLAP,
-            clean_markdown_content=CLEAN_MARKDOWN_CONTENT
-        )
+            first_chunk_metadata = chunk_data_list[0]['metadata']
+            doc_title = first_chunk_metadata.get('document_title', file_path_obj.stem)
+            doc_url = first_chunk_metadata.get('source_url', '')
+            doc_author = first_chunk_metadata.get('author', '')
 
-        if not chunk_data_list:
-            print(f"Warning: File '{file_name_str}' doesn't have valid chunks after processing. Skipping...")
-            continue
+            file_titles.append(doc_title)
+            file_paths.append(file_name_str)
+            file_meta[file_name_str] = {
+                'title': doc_title,
+                'url': doc_url,
+                'author': doc_author
+            }
 
-        first_chunk_metadata = chunk_data_list[0]['metadata']
-        doc_title = first_chunk_metadata.get('document_title', file_path_obj.stem)
-        doc_url = first_chunk_metadata.get('source_url', '')
-        doc_author = first_chunk_metadata.get('author', '')
+            chunks_content_only = [cd['content'] for cd in chunk_data_list]
+            chunks_metadata_only = [cd['metadata'] for cd in chunk_data_list]
 
-        file_titles.append(doc_title)
-        file_paths.append(file_name_str)
-        file_meta[file_name_str] = {
-            'title': doc_title,
-            'url': doc_url,
-            'author': doc_author
-        }
+            idx, saved_chunks_content, saved_chunks_metadata = build_index_for_file(
+                file_name_str, embed_model, chunks_content_only, chunks_metadata_only
+            )
 
-        chunks_content_only = [cd['content'] for cd in chunk_data_list]
-        chunks_metadata_only = [cd['metadata'] for cd in chunk_data_list]
-
-        idx, saved_chunks_content, saved_chunks_metadata = build_index_for_file(
-            file_name_str, embed_model, chunks_content_only, chunks_metadata_only
-        )
-
-        file_indices[file_name_str] = (idx, saved_chunks_content, saved_chunks_metadata)
-
+            file_indices[file_name_str] = (idx, saved_chunks_content, saved_chunks_metadata)
+    except Exception as e:
+        print(f'{file_name_str} Error: {e}')
     return file_indices, file_titles, file_paths, file_meta
 
 

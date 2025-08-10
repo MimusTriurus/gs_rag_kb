@@ -89,7 +89,8 @@ session_id = 'session_1'
 query_refiner = QueryRefiner(LLM_MODEL)
 query_refiner_based_on_history = QueryRefinerBasedOnHistory(LLM_MODEL)
 
-session_system_prompt = system_prompt if NEED_2_REFINE_QUERY_USING_HISTORY else system_prompt_with_history
+# session_system_prompt = system_prompt if NEED_2_REFINE_QUERY_USING_HISTORY else system_prompt_with_history
+session_system_prompt = system_prompt
 
 default_ollama_session = OllamaChatSession(LLM_MODEL, session_system_prompt, HISTORY_LENGTH)
 
@@ -136,6 +137,8 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
     answers: List[Tuple[str, float, str, str, list]] = []  # answer, score, url, author
 
     N = 3
+    # for TestRail
+    # N = 1
 
     if settings.NEED_2_REFINE_QUERY_USING_HISTORY() and ollama_session.messages:
         print('========= HISTORY =========')
@@ -156,7 +159,8 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             chunks_content_list,
             chunks_metadata_list,
             query,
-            settings.THRESHOLD_CHUNKS_RETRIEVE()
+            settings.THRESHOLD_CHUNKS_RETRIEVE(),
+            settings.TOP_K_RERANK()
         )
 
         grouped_blocks = []
@@ -177,8 +181,20 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
 
         context = '\n---\n'.join(context_parts)
         files_context[fname] = context
-        # GENERATA ANSWER USING LLM
-        answer = await run_in_thread(ollama_session.ask, context, query, settings)
+        avg_score = sum([item[2] for item in grouped_blocks]) / len(grouped_blocks)
+        print()
+        print(f'--- {fname} | context [{len(grouped_blocks)}] average score: {avg_score} ---')
+        for cp in grouped_blocks:
+            header = cp[1].get('section_heading', 'Empty')
+            print(f"score: {cp[2]} {header}")
+        print('------')
+        continue
+        # GENERATE ANSWER USING LLM
+        try:
+            answer = await run_in_thread(ollama_session.ask, context, query, settings)
+        except Exception as e:
+            print(f'Error: {e}')
+            answer = MISSING_INFO_TEXT
 
         if MISSING_INFO_TEXT not in answer:
             best_metadata = grouped_blocks[0][1]

@@ -187,7 +187,8 @@ def retrieve_and_rerank(
         chunks_content_list: List[str],
         chunks_metadata_list: List[Dict[str, Any]],
         query: str,
-        threshold: float = 0.3
+        threshold: float = 0.3,
+        top_k_rerank: int = TOP_K_RERANK
 ) -> List[Tuple[str, Dict[str, Any], float]]:
     """
     Extracts relevant chunks from the FAISS index, re-ranks them using cross-encoder
@@ -247,7 +248,7 @@ def retrieve_and_rerank(
     # 5. Return top results
     final_ranked_output = [
         (cand_data['content'], cand_data['metadata'], float(score))
-        for score, cand_data in ranked_results[:TOP_K_RERANK]
+        for score, cand_data in ranked_results[:top_k_rerank]
     ]
 
     return final_ranked_output

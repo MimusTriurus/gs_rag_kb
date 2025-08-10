@@ -4,6 +4,7 @@ from ollama import Client
 import re
 from source.backend.settings import OLLAMA_BASE_URL
 
+
 class LlmQuestionsGenerator:
     def __init__(self, model: str):
         self.ollama_client = Client(
@@ -35,7 +36,6 @@ class LlmQuestionsGenerator:
         {context}
         {self.answer_format}
         '''
-
 
         response = self.ollama_client.generate(
             model=self.model,
