@@ -44,7 +44,7 @@ def load_index_data(doc_path: Path) -> Tuple[Dict[str, Any], List[str], List[str
 
         if all(p.exists() for p in (emb_path, chunks_content_path, chunks_metadata_path, index_path)):
             try:
-                print(f"Load data for '{file_name_str}' from the cache.")
+                print(f"Load data for '{file_name_str}' from the cache ({CACHE_DIR}).")
                 # np.load(emb_path)
 
                 saved_chunks_content = joblib.load(chunks_content_path)

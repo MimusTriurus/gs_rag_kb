@@ -271,6 +271,7 @@ def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], L
 if __name__ == '__main__':
     try:
         embed_model = SentenceTransformer(EMBED_MODEL_NAME)
+        print(f'==> Chunking docs in {DOCUMENTS_PATH} to {CACHE_DIR}...')
         file_indices, file_titles, file_paths, file_meta = parse_documents(Path(DOCUMENTS_PATH), embed_model)
     except Exception as e:
         print(e)
