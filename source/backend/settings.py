@@ -1,8 +1,8 @@
 import os
 
-DOCUMENTS_PATH = 'documents/'
+DOCUMENTS_PATH = os.getenv('DOCUMENTS_PATH', 'documents/')
 TEST_DOCUMENTS_PATH = os.getenv('TEST_DOCUMENTS_PATH', 'test_docs/')
-CACHE_DIR = 'cache/'
+CACHE_DIR = os.getenv('CACHE_DIR', 'cache/')
 EMBED_MODEL_NAME = 'models/bge-large-en'
 CROSS_ENCODER_NAME = 'models/ms-marco-MiniLM-L6-v2'
 LLM_MODEL = os.getenv('LLM_MODEL', 'mistral:7b-instruct')

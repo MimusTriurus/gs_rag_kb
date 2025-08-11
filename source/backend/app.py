@@ -188,7 +188,7 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             header = cp[1].get('section_heading', 'Empty')
             print(f"score: {cp[2]} {header}")
         print('------')
-        continue
+        # continue
         # GENERATE ANSWER USING LLM
         try:
             answer = await run_in_thread(ollama_session.ask, context, query, settings)

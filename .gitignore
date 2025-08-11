@@ -6,8 +6,10 @@ __pycache__/
 hudet/
 cv/
 models/
-#documents/*
+documents/*
 cache/
+knowledge_base/
+documents_no_meta/
 intfloat/
 layout_app.py
 api/flask_session
