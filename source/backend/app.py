@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from starlette.responses import JSONResponse
 
+from input_data_processing.chunking import clean_chunk_content
 from source.backend.db_utils import (
     init_db,
     insert_feedback,
@@ -20,7 +21,7 @@ from source.backend.db_utils import (
     get_all_feedback,
     get_all_not_found_queries
 )
-from source.backend.document_utils import load_index_data, retrieve_and_rerank, select_best_files
+from source.backend.document_utils import load_index_data, retrieve_and_rerank, select_best_files, compute_similarities
 from source.backend.interaction import OllamaChatSession, system_prompt, system_prompt_with_history
 from source.backend.llm_settings import Settings
 from source.backend.llm_tools.llm_refiners import QueryRefiner, QueryRefinerBasedOnHistory
@@ -119,6 +120,8 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         query = await run_in_thread(query_refiner.refine, user_query)
         print(f'==> refined: {user_query} => {query}\n')
 
+    query_emb = embed_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
+
     print('==> select files using semantic similarity\n')
     selected_files = await run_in_thread(
         select_best_files,
@@ -147,7 +150,7 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         print('====================')
 
     files_context = {}
-
+    contexts = []
     for fname in selected_files:
         faiss_index, chunks_content_list, chunks_metadata_list = file_indices[fname]
         # GET CONTEXT DATA
@@ -188,7 +191,7 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             header = cp[1].get('section_heading', 'Empty')
             print(f"score: {cp[2]} {header}")
         print('------')
-        # continue
+
         # GENERATE ANSWER USING LLM
         try:
             answer = await run_in_thread(ollama_session.ask, context, query, settings)
@@ -200,10 +203,22 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             best_metadata = grouped_blocks[0][1]
             best_url = best_metadata.get('url', '')
             best_author = best_metadata.get('author', '')
+            # this is not the best metric...
             avg_score = grouped_blocks[0][2]
+            context_similarities = compute_similarities(query, {fname:  clean_chunk_content(answer)}, embed_model)
+            if context_similarities:
+                avg_score = context_similarities[0]
             answers.append((answer, avg_score, best_url, best_author, context_parts))
             # todo: maybe we have to break the circle if we found information
             # break
+
+    calculate_context_sim = False
+    if calculate_context_sim:
+        context_similarities = compute_similarities(query, files_context, embed_model)
+        print('--- context to query similarity ---')
+        for cs in context_similarities:
+            print(f'{cs[1]} \nSCORE: {cs[3]} \nQuery: {cs[0]} -> \nAnswer: {cs[2][:100]}...\n')
+        print('----------')
 
     if not answers:
         await run_in_thread(insert_not_found_query, db_path, user_query)
@@ -218,8 +233,9 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             url='',
             author=''
         )
+    # get the best answer by score
+    best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1][3])
 
-    best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1])
     ollama_session.update_history(query, best_answer)
     return ResponseOutput(answer=best_answer, url=best_url, author=best_author)
 

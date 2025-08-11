@@ -4,6 +4,9 @@ import joblib
 import numpy as np
 import faiss
 from pathlib import Path
+
+from sentence_transformers import SentenceTransformer
+
 from source.backend.settings import TOP_K_FILE_SELECT, CACHE_DIR, TOP_K_RERANK, TOP_K_RETRIEVAL, clean_chunk_markdown
 
 
@@ -252,3 +255,16 @@ def retrieve_and_rerank(
     ]
 
     return final_ranked_output
+
+
+def compute_similarities(query: str, files_context: dict, model: SentenceTransformer):
+    from sentence_transformers import util
+    query_emb = model.encode(f'query: {query}', convert_to_tensor=True)
+
+    results = []
+    for fname, context in files_context.items():
+        text_emb = model.encode(f'passage: {context}', convert_to_tensor=True)
+        score = util.cos_sim(query_emb, text_emb).item()
+        results.append((query, fname, context, score))
+
+    return results
