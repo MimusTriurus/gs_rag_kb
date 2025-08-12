@@ -30,7 +30,7 @@ We will analyze your request and update our knowledge base.
 
 DEFAULT_MAX_CHUNK_SIZE = 500
 DEFAULT_CHUNK_OVERLAP = 100
-CLEAN_MARKDOWN_CONTENT = True
+CLEAN_MARKDOWN_CONTENT = False
 
 USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE = bool(os.getenv('USE_OLLAMA_2_SELECT_KNOWLEDGE_BASE', False))
 

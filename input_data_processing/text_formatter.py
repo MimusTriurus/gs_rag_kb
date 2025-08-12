@@ -4,7 +4,7 @@ import ollama
 import textwrap
 import re
 
-from settings import LLM_MODEL, DOCUMENTS_PATH, TEST_DOCUMENTS_PATH
+from source.backend.settings import LLM_MODEL, DOCUMENTS_PATH, TEST_DOCUMENTS_PATH
 
 
 class TextFormatter:

@@ -83,6 +83,10 @@ init_db(db_path)
 os.makedirs(CACHE_DIR, exist_ok=True)
 embed_model = SentenceTransformer(EMBED_MODEL_NAME)
 cross_encoder = CrossEncoder(CROSS_ENCODER_NAME)
+#file_indices: dict = {}
+#file_titles: list = []
+#file_paths: list = []
+#file_meta: dict = {}
 file_indices, file_titles, file_paths, file_meta = load_index_data(Path(DOCUMENTS_PATH))
 
 session_id = 'session_1'
@@ -137,7 +141,7 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         await run_in_thread(insert_not_found_query, db_path, user_query)
         return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
 
-    answers: List[Tuple[str, float, str, str, list]] = []  # answer, score, url, author
+    answers: List[Tuple[str, float, str, str, list, str]] = []  # answer, score, url, author
 
     N = 3
     # for TestRail
@@ -191,7 +195,6 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             header = cp[1].get('section_heading', 'Empty')
             print(f"score: {cp[2]} {header}")
         print('------')
-
         # GENERATE ANSWER USING LLM
         try:
             answer = await run_in_thread(ollama_session.ask, context, query, settings)
@@ -205,14 +208,18 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             best_author = best_metadata.get('author', '')
             # this is not the best metric...
             avg_score = grouped_blocks[0][2]
+            '''
             context_similarities = compute_similarities(query, {fname:  clean_chunk_content(answer)}, embed_model)
             if context_similarities:
-                avg_score = context_similarities[0]
-            answers.append((answer, avg_score, best_url, best_author, context_parts))
+                avg_score = context_similarities[0][3]
+            '''
+            answers.append((answer, avg_score, best_url, best_author, context_parts, fname))
             # todo: maybe we have to break the circle if we found information
             # break
+        else:
+            print(clean_chunk_content(answer))
 
-    calculate_context_sim = False
+    calculate_context_sim = True
     if calculate_context_sim:
         context_similarities = compute_similarities(query, files_context, embed_model)
         print('--- context to query similarity ---')
@@ -234,7 +241,7 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             author=''
         )
     # get the best answer by score
-    best_answer, _, best_url, best_author, best_context_parts = max(answers, key=lambda x: x[1][3])
+    best_answer, _, best_url, best_author, best_context_parts, best_fname = max(answers, key=lambda x: x[1])
 
     ollama_session.update_history(query, best_answer)
     return ResponseOutput(answer=best_answer, url=best_url, author=best_author)
@@ -284,5 +291,5 @@ def custom_openapi():
 
 if __name__ == '__main__':
     import uvicorn
-
+    #file_indices, file_titles, file_paths, file_meta = load_index_data(Path(DOCUMENTS_PATH))
     uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=False)

@@ -64,10 +64,6 @@ def split_md_file(
 
     doc_metadata['source_file'] = file_path
 
-    headers_to_split_on = [
-        ("#", "Title")
-    ]
-
     markdown_splitter = MarkdownTextSplitter(
         chunk_size=max_chunk_size,
         chunk_overlap=chunk_overlap,
@@ -117,12 +113,14 @@ def split_md_file_by_header(
     doc_metadata['source_file'] = file_path
 
     headers_to_split_on = [
-        ("#", "Title")
+        ("#", "0"),
+        ("##", "1"),
+        ("###", "2"),
     ]
 
     markdown_splitter = MarkdownHeaderTextSplitter(
         headers_to_split_on=headers_to_split_on,
-        strip_headers=False
+        strip_headers=True
     )
 
     raw_chunks = markdown_splitter.split_text(md_content_for_chunking)
@@ -130,6 +128,12 @@ def split_md_file_by_header(
     processed_chunks: List[Dict[str, Any]] = []
 
     for i, chunk in enumerate(raw_chunks):
+
+        chunk_metadata = chunk.metadata
+        metadata_content = ''
+        for k, v in chunk_metadata.items():
+            metadata_content += f'{v}\n'
+
         raw_chunk = chunk.page_content
         section_heading = ""
         match = re.search(r'^(#+)\s*(.*)', raw_chunk, re.MULTILINE)
@@ -140,7 +144,10 @@ def split_md_file_by_header(
         cleaned_content = raw_chunk
         if clean_markdown_content:
             cleaned_content = clean_chunk_content(raw_chunk)
-        if cleaned_content.strip():
+
+        cleaned_content = f"{doc_metadata.get('title', '')}\n{metadata_content}{cleaned_content.strip()}"
+
+        if cleaned_content:
             chunk_metadata = {
                 **doc_metadata,
                 'chunk_id': f"{file_path}_{i}",
@@ -148,11 +155,46 @@ def split_md_file_by_header(
                 # 'start_index': raw_chunk.start_index, # todo: only if splitter supports that. need to investigate
             }
             processed_chunks.append({
-                'content': cleaned_content.strip(),
+                'content': cleaned_content,
                 'metadata': chunk_metadata
             })
 
     return processed_chunks
+
+
+def split_md_by_headers(md_text):
+    # Разделяем по заголовкам первого уровня
+    level1_blocks = re.split(r'(?m)(?=^#\s)', md_text.strip())
+
+    chunks = []
+    for block in level1_blocks:
+        if not block.strip():
+            continue
+
+        # Извлекаем заголовок первого уровня
+        level1_match = re.match(r'^#\s+(.*)', block.strip())
+        if not level1_match:
+            continue
+        level1_title = level1_match.group(1).strip()
+
+        # Убираем заголовок первого уровня из текста блока
+        block_body = block.strip()
+
+        # Проверяем, есть ли заголовки второго уровня
+        level2_blocks = re.split(r'(?m)(?=^##\s)', block_body)
+
+        if len(level2_blocks) > 1:
+            # Разбиваем по ## и добавляем в каждый заголовок уровень 1
+            for subblock in level2_blocks:
+                if not subblock.strip():
+                    continue
+                # Добавляем инфо о родителе
+                subblock = f"# {level1_title}\n" + subblock.strip()
+                chunks.append(subblock)
+        else:
+            chunks.append(block_body)
+
+    return chunks
 
 
 def build_index_for_file(
@@ -230,12 +272,12 @@ def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], L
         for file_path_obj in doc_path.glob("*.md"):
             file_name_str = str(file_path_obj.name)
             # for testrails
-            #chunk_data_list = split_md_file_by_header(
-            chunk_data_list = split_md_file(
+            chunk_data_list = split_md_file_by_header(
+            #chunk_data_list = split_md_file(
                 file_path_obj,
                 max_chunk_size=DEFAULT_MAX_CHUNK_SIZE,
                 chunk_overlap=DEFAULT_CHUNK_OVERLAP,
-                clean_markdown_content=CLEAN_MARKDOWN_CONTENT
+                clean_markdown_content=CLEAN_MARKDOWN_CONTENT,
             )
 
             if not chunk_data_list:
@@ -266,6 +308,16 @@ def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], L
     except Exception as e:
         print(f'{file_name_str} Error: {e}')
     return file_indices, file_titles, file_paths, file_meta
+
+
+if __name__ == "__main__1":
+    md_path = Path("D:/Projects/Python/gs_rag_kb/documents/tech_writer_gt/gametech_digest_2022_2023.md")
+    md_text = md_path.read_text(encoding="utf-8")
+
+    chunks = split_md_by_headers(md_text)
+
+    for i, ch in enumerate(chunks, 1):
+        print(f"\n--- CHUNK {i} ---\n{ch}")
 
 
 if __name__ == '__main__':
