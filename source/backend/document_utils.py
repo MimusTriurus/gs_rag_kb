@@ -243,7 +243,8 @@ def retrieve_and_rerank(
     # 4. Matching scores to candidates and filtering by threshold
     ranked_results = []
     for score, cand_data in zip(scores, retrieved_candidates):
-        if score >= threshold:
+        #if score >= threshold:
+        if score > 0:
             ranked_results.append((score, cand_data))
 
     ranked_results.sort(key=lambda x: x[0], reverse=True)

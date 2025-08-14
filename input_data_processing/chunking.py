@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Set
 
 import faiss
 import joblib
@@ -105,7 +105,7 @@ def split_md_file_by_header(
         max_chunk_size: int = 500,
         chunk_overlap: int = 100,
         clean_markdown_content: bool = True
-) -> List[Dict[str, Any]]:
+) -> Tuple[List[Dict[str, Any]], List[str]]:
     with open(file_path, 'r', encoding='utf-8') as f:
         full_content = f.read()
     doc_metadata, md_content_for_chunking = extract_document_metadata(full_content)
@@ -126,13 +126,14 @@ def split_md_file_by_header(
     raw_chunks = markdown_splitter.split_text(md_content_for_chunking)
 
     processed_chunks: List[Dict[str, Any]] = []
-
+    headers_tags_set = set()
     for i, chunk in enumerate(raw_chunks):
 
         chunk_metadata = chunk.metadata
         metadata_content = ''
         for k, v in chunk_metadata.items():
             metadata_content += f'{v}\n'
+            headers_tags_set.add(v)
 
         raw_chunk = chunk.page_content
         section_heading = ""
@@ -159,42 +160,7 @@ def split_md_file_by_header(
                 'metadata': chunk_metadata
             })
 
-    return processed_chunks
-
-
-def split_md_by_headers(md_text):
-    # Разделяем по заголовкам первого уровня
-    level1_blocks = re.split(r'(?m)(?=^#\s)', md_text.strip())
-
-    chunks = []
-    for block in level1_blocks:
-        if not block.strip():
-            continue
-
-        # Извлекаем заголовок первого уровня
-        level1_match = re.match(r'^#\s+(.*)', block.strip())
-        if not level1_match:
-            continue
-        level1_title = level1_match.group(1).strip()
-
-        # Убираем заголовок первого уровня из текста блока
-        block_body = block.strip()
-
-        # Проверяем, есть ли заголовки второго уровня
-        level2_blocks = re.split(r'(?m)(?=^##\s)', block_body)
-
-        if len(level2_blocks) > 1:
-            # Разбиваем по ## и добавляем в каждый заголовок уровень 1
-            for subblock in level2_blocks:
-                if not subblock.strip():
-                    continue
-                # Добавляем инфо о родителе
-                subblock = f"# {level1_title}\n" + subblock.strip()
-                chunks.append(subblock)
-        else:
-            chunks.append(block_body)
-
-    return chunks
+    return processed_chunks, list(headers_tags_set)
 
 
 def build_index_for_file(
@@ -247,23 +213,6 @@ def build_index_for_file(
 
 
 def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], List[str], List[str], Dict[str, Any]]:
-    """
-       Parses Markdown documents from the specified path, breaks them into chunks
-       and prepares the data for indexing in the RAG system.
-
-       Args:
-           doc_path (Path): The path to the directory containing the Markdown files.
-           embed_model (Any): The model for embedding generation (e.g. SentenceTransformer).
-
-       Returns:
-           Tuple[Dict[str, Any], List[str], List[str], Dict[str, Any]]:
-               - file_indices: Dictionary with FAISS indexes, chunks, and their metadata by file name.
-                               Format: {file_name: (faiss_index, list_of_chunk_contents, list_of_chunk_metadata_dicts)}
-               - file_titles: List of titles of all documents.
-               - file_paths: List of all file names.
-               - file_meta: A dictionary with global metadata for each file.
-                               Format: {file_name: {'title': ..., 'url': ..., 'author': ...}}
-       """
     file_indices: Dict[str, Any] = {}
     file_titles: List[str] = []
     file_paths: List[str] = []
@@ -272,7 +221,7 @@ def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], L
         for file_path_obj in doc_path.glob("*.md"):
             file_name_str = str(file_path_obj.name)
             # for testrails
-            chunk_data_list = split_md_file_by_header(
+            chunk_data_list, headers_tags = split_md_file_by_header(
             #chunk_data_list = split_md_file(
                 file_path_obj,
                 max_chunk_size=DEFAULT_MAX_CHUNK_SIZE,
@@ -285,6 +234,10 @@ def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], L
                 continue
 
             first_chunk_metadata = chunk_data_list[0]['metadata']
+
+            for chunk_data in chunk_data_list:
+                chunk_data['metadata']['tags'] = headers_tags
+
             doc_title = first_chunk_metadata.get('document_title', file_path_obj.stem)
             doc_url = first_chunk_metadata.get('source_url', '')
             doc_author = first_chunk_metadata.get('author', '')
@@ -308,16 +261,6 @@ def parse_documents(doc_path: Path, embed_model: Any) -> Tuple[Dict[str, Any], L
     except Exception as e:
         print(f'{file_name_str} Error: {e}')
     return file_indices, file_titles, file_paths, file_meta
-
-
-if __name__ == "__main__1":
-    md_path = Path("D:/Projects/Python/gs_rag_kb/documents/tech_writer_gt/gametech_digest_2022_2023.md")
-    md_text = md_path.read_text(encoding="utf-8")
-
-    chunks = split_md_by_headers(md_text)
-
-    for i, ch in enumerate(chunks, 1):
-        print(f"\n--- CHUNK {i} ---\n{ch}")
 
 
 if __name__ == '__main__':

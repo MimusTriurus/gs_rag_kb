@@ -3,7 +3,7 @@ import concurrent.futures
 import functools
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +12,9 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer, CrossEncoder
 from starlette.responses import JSONResponse
+from statistics import mean, median
+from numpy import dot
+from numpy.linalg import norm
 
 from input_data_processing.chunking import clean_chunk_content
 from source.backend.db_utils import (
@@ -104,6 +107,48 @@ ollama_sessions = {
 }
 
 
+def compare_chunk_scores(arr1: List[float], arr2: List[float], top_n: int = 3, threshold: float = 0.8) -> Dict:
+    def avg(values):
+        return mean(values)
+
+    def weighted_avg(values, weights=None):
+        if not weights:
+            return avg(values)
+        return sum(v * w for v, w in zip(values, weights)) / sum(weights)
+
+    def top_n_avg(values, n):
+        return mean(sorted(values, reverse=True)[:n])
+
+    def above_threshold_ratio(values, thr):
+        return sum(1 for v in values if v >= thr) / len(values)
+
+    def cosine_similarity(a, b):
+        return dot(a, b) / (norm(a) * norm(b))
+
+    results = {
+        "average": (avg(arr1), avg(arr2)),
+        "median": (median(arr1), median(arr2)),
+        f"top_{top_n}_avg": (top_n_avg(arr1, top_n), top_n_avg(arr2, top_n)),
+        f"ratio_above_{threshold}": (above_threshold_ratio(arr1, threshold), above_threshold_ratio(arr2, threshold)),
+        "cosine_similarity": cosine_similarity(arr1, arr2)  # для общей похожести
+    }
+
+    # Финальный "вердикт" по композитной метрике
+    composite1 = 0.7 * results[f"top_{top_n}_avg"][0] + 0.3 * results[f"ratio_above_{threshold}"][0]
+    composite2 = 0.7 * results[f"top_{top_n}_avg"][1] + 0.3 * results[f"ratio_above_{threshold}"][1]
+    results["composite_score"] = (composite1, composite2)
+    results["winner"] = "arr1" if composite1 > composite2 else "arr2"
+
+    return results
+
+
+def calculate_composite(arr: List[float], top_n: int = 3, threshold: float = 0.8) -> float:
+    top_avg = mean(sorted(arr, reverse=True)[:top_n])
+    ratio_above_thr = sum(1 for v in arr if v >= threshold) / len(arr)
+    composite = 0.7 * top_avg + 0.3 * ratio_above_thr
+    return composite
+
+
 async def rag_search_impl(input_data: QueryInput, settings: Settings) -> ResponseOutput:
     ollama_session = ollama_sessions.get(session_id, default_ollama_session)
 
@@ -124,7 +169,7 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         query = await run_in_thread(query_refiner.refine, user_query)
         print(f'==> refined: {user_query} => {query}\n')
 
-    query_emb = embed_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
+    # query_emb = embed_model.encode([query], convert_to_numpy=True, normalize_embeddings=True)
 
     print('==> select files using semantic similarity\n')
     selected_files = await run_in_thread(
@@ -142,10 +187,8 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         return ResponseOutput(answer=no_info_in_knowledge_base_message, url='', author='')
 
     answers: List[Tuple[str, float, str, str, list, str]] = []  # answer, score, url, author
-
-    N = 3
-    # for TestRail
-    # N = 1
+    # устарело. не надо делать группировку чанков
+    N = 1
 
     if settings.NEED_2_REFINE_QUERY_USING_HISTORY() and ollama_session.messages:
         print('========= HISTORY =========')
@@ -154,7 +197,6 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         print('====================')
 
     files_context = {}
-    contexts = []
     for fname in selected_files:
         faiss_index, chunks_content_list, chunks_metadata_list = file_indices[fname]
         # GET CONTEXT DATA
@@ -171,6 +213,8 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         )
 
         grouped_blocks = []
+        grouped_scores = []
+        # todo: переделать ибо устарело. не надо делать группировку чанков
         for i in range(0, len(retrieved_and_ranked_for_file), N):
             group = retrieved_and_ranked_for_file[i:i + N]
             if not group:
@@ -178,8 +222,11 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             combined_text = '\n'.join([item[0] for item in group])
             metadata = group[0][1]
             avg_score = sum([item[2] for item in group]) / len(group)
-
-            grouped_blocks.append((combined_text, metadata, avg_score))
+            score = group[0][2]
+            if score >= settings.THRESHOLD_CHUNKS_RETRIEVE():
+                # grouped_scores.append(avg_score)
+                grouped_blocks.append((combined_text, metadata, avg_score))
+            grouped_scores.append(score)
 
         context_parts = [block[0] for block in grouped_blocks]
 
@@ -189,11 +236,16 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
         context = '\n---\n'.join(context_parts)
         files_context[fname] = context
         avg_score = sum([item[2] for item in grouped_blocks]) / len(grouped_blocks)
+        composite_score = calculate_composite(grouped_scores, settings.TOP_K_RERANK(), settings.THRESHOLD_CHUNKS_RETRIEVE())
         print()
-        print(f'--- {fname} | context [{len(grouped_blocks)}] average score: {avg_score} ---')
+        print(f'--- {fname} | context [{len(grouped_blocks)}] average score: {avg_score} composite score: {composite_score} ---')
         for cp in grouped_blocks:
-            header = cp[1].get('section_heading', 'Empty')
-            print(f"score: {cp[2]} {header}")
+            chunk_summary = 'Empty'
+            try:
+                chunk_summary = ' '.join(cp[0].split('\n')[:2])
+            except Exception as e:
+                print(f'{e}')
+            print(f"score: {cp[2]} {chunk_summary}")
         print('------')
         # GENERATE ANSWER USING LLM
         try:
@@ -206,26 +258,9 @@ async def rag_search_impl(input_data: QueryInput, settings: Settings) -> Respons
             best_metadata = grouped_blocks[0][1]
             best_url = best_metadata.get('url', '')
             best_author = best_metadata.get('author', '')
-            # this is not the best metric...
-            avg_score = grouped_blocks[0][2]
-            '''
-            context_similarities = compute_similarities(query, {fname:  clean_chunk_content(answer)}, embed_model)
-            if context_similarities:
-                avg_score = context_similarities[0][3]
-            '''
-            answers.append((answer, avg_score, best_url, best_author, context_parts, fname))
-            # todo: maybe we have to break the circle if we found information
-            # break
+            answers.append((answer, composite_score, best_url, best_author, context_parts, fname))
         else:
             print(clean_chunk_content(answer))
-
-    calculate_context_sim = True
-    if calculate_context_sim:
-        context_similarities = compute_similarities(query, files_context, embed_model)
-        print('--- context to query similarity ---')
-        for cs in context_similarities:
-            print(f'{cs[1]} \nSCORE: {cs[3]} \nQuery: {cs[0]} -> \nAnswer: {cs[2][:100]}...\n')
-        print('----------')
 
     if not answers:
         await run_in_thread(insert_not_found_query, db_path, user_query)
