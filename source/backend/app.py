@@ -143,9 +143,29 @@ def compare_chunk_scores(arr1: List[float], arr2: List[float], top_n: int = 3, t
 
 
 def calculate_composite(arr: List[float], top_n: int = 3, threshold: float = 0.8) -> float:
-    top_avg = mean(sorted(arr, reverse=True)[:top_n])
+    """
+    Вычисляет композитную метрику для массива скорингов.
+    Учитывает:
+      - Среднее по top-N (адаптированному под размер массива)
+      - Долю значений выше порога
+      - Максимальный score (важно для одиночных точных попаданий)
+    """
+    if not arr:
+        return 0.0
+
+    # Адаптация N для маленьких документов
+    n = min(top_n, len(arr))
+
+    top_avg = mean(sorted(arr, reverse=True)[:n])
     ratio_above_thr = sum(1 for v in arr if v >= threshold) / len(arr)
-    composite = 0.7 * top_avg + 0.3 * ratio_above_thr
+    max_score = max(arr)
+
+    # Весовые коэффициенты можно подстраивать под задачу
+    composite = (
+        0.5 * top_avg +      # важность плотности топовых чанков
+        0.3 * ratio_above_thr +  # сколько чанков в документе вообще хорошие
+        0.2 * max_score      # наличие хотя бы одного идеального совпадения
+    )
     return composite
 
 
